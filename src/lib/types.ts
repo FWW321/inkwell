@@ -1,0 +1,56 @@
+export interface Project {
+  id: string;
+  title: string;
+  description: string;
+  cover_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NodeType = "volume" | "chapter";
+export type ChapterStatus = "draft" | "completed" | "revising";
+
+export interface OutlineNode {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  node_type: NodeType;
+  title: string;
+  sort_order: number;
+  content_json: string;
+  word_count: number;
+  status: ChapterStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Character {
+  id: string;
+  project_id: string;
+  name: string;
+  avatar_url: string | null;
+  description: string;
+  personality: string;
+  background: string;
+  created_at: string;
+}
+
+export interface WorldviewEntry {
+  id: string;
+  project_id: string;
+  category: string;
+  title: string;
+  content: string;
+  created_at: string;
+}
+
+export interface AiConfig {
+  api_key: string;
+  model: string;
+  base_url: string;
+}
+
+export interface AiMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
