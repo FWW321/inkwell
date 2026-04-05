@@ -10,17 +10,21 @@ import {
   Pencil,
   Star,
   ArrowLeft,
+  Bot,
 } from "lucide-react";
 import { aiApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { AiConfig } from "@/lib/types";
+import type { AiConfig, AiAgent } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 const ModelCard = ({
   model,
@@ -32,55 +36,95 @@ const ModelCard = ({
   onEdit: (m: AiConfig) => void;
   onDelete: (id: string) => void;
   onSetDefault: (id: string) => void;
-}) => {
-  return (
-    <Card className={cn("transition-all duration-150", model.is_default && "ring-primary/30 border-primary/20")}>
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/12">
-          <Cpu className="size-4 text-primary/80" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-card-foreground truncate">{model.name || model.model}</p>
-            {model.is_default && (
-              <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-primary/15 text-primary">默认</span>
-            )}
-          </div>
-          <p className="mt-0.5 text-xs text-muted-foreground/60 truncate">{model.model}</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground/40 truncate">{model.base_url}</p>
-        </div>
-        <div className="flex items-center gap-1">
-          {!model.is_default && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onSetDefault(model.id)}
-              className="text-muted-foreground/50 hover:text-amber-500"
-            >
-              <Star className="size-3.5" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onEdit(model)}
-            className="text-muted-foreground/50 hover:text-foreground"
-          >
-            <Pencil className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onDelete(model.id)}
-            className="text-muted-foreground/50 hover:text-destructive"
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        </div>
+}) => (
+  <Card className={cn("transition-all duration-150", model.is_default && "ring-primary/30 border-primary/20")}>
+    <div className="flex items-center gap-3 px-4 py-3.5">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/12">
+        <Cpu className="size-4 text-primary/80" />
       </div>
-    </Card>
-  );
-};
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-card-foreground truncate">{model.name || model.model}</p>
+          {model.is_default && (
+            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-primary/15 text-primary">默认</span>
+          )}
+        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground/60 truncate">{model.model}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground/40 truncate">{model.base_url}</p>
+      </div>
+      <div className="flex items-center gap-1">
+        {!model.is_default && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onSetDefault(model.id)}
+            className="text-muted-foreground/50 hover:text-amber-500"
+          >
+            <Star className="size-3.5" />
+          </Button>
+        )}
+        <Button variant="ghost" size="icon-sm" onClick={() => onEdit(model)} className="text-muted-foreground/50 hover:text-foreground">
+          <Pencil className="size-3.5" />
+        </Button>
+        <Button variant="ghost" size="icon-sm" onClick={() => onDelete(model.id)} className="text-muted-foreground/50 hover:text-destructive">
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+    </div>
+  </Card>
+);
+
+const AgentCard = ({
+  agent,
+  onEdit,
+  onDelete,
+  onSetDefault,
+}: {
+  agent: AiAgent;
+  onEdit: (a: AiAgent) => void;
+  onDelete: (id: string) => void;
+  onSetDefault: (id: string) => void;
+}) => (
+  <Card className={cn("transition-all duration-150", agent.is_default && "ring-primary/30 border-primary/20")}>
+    <div className="flex items-center gap-3 px-4 py-3.5">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-cyan-500/12">
+        <Bot className="size-4 text-cyan-500/80" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-card-foreground truncate">{agent.name}</p>
+          {agent.is_default && (
+            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-primary/15 text-primary">默认</span>
+          )}
+        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground/60 truncate">
+          模型: {agent.model_name ?? "未知"}
+        </p>
+        {agent.system_prompt && (
+          <p className="mt-0.5 text-[11px] text-muted-foreground/40 truncate">{agent.system_prompt}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-1">
+        {!agent.is_default && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onSetDefault(agent.id)}
+            className="text-muted-foreground/50 hover:text-amber-500"
+          >
+            <Star className="size-3.5" />
+          </Button>
+        )}
+        <Button variant="ghost" size="icon-sm" onClick={() => onEdit(agent)} className="text-muted-foreground/50 hover:text-foreground">
+          <Pencil className="size-3.5" />
+        </Button>
+        <Button variant="ghost" size="icon-sm" onClick={() => onDelete(agent.id)} className="text-muted-foreground/50 hover:text-destructive">
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+    </div>
+  </Card>
+);
 
 const ModelCombobox = ({
   value,
@@ -281,12 +325,7 @@ const ModelForm = ({
       </div>
       <div className="flex flex-col gap-1.5">
         <Label>模型</Label>
-        <ModelCombobox
-          value={model}
-          onChange={setModel}
-          models={models}
-          loading={modelsLoading}
-        />
+        <ModelCombobox value={model} onChange={setModel} models={models} loading={modelsLoading} />
         <button
           type="button"
           onClick={handleFetchModels}
@@ -305,49 +344,160 @@ const ModelForm = ({
   );
 };
 
+const AgentForm = ({
+  initial,
+  models,
+  onSave,
+  onCancel,
+}: {
+  initial?: AiAgent | null;
+  models: AiConfig[];
+  onSave: (data: { name: string; modelId: string; systemPrompt: string }) => void;
+  onCancel: () => void;
+}) => {
+  const [name, setName] = useState(initial?.name ?? "");
+  const [modelId, setModelId] = useState(initial?.model_id ?? "");
+  const [systemPrompt, setSystemPrompt] = useState(initial?.system_prompt ?? "");
+  const [saving, setSaving] = useState(false);
+  const isEdit = !!initial;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !modelId) return;
+    setSaving(true);
+    try {
+      await onSave({ name: name.trim(), modelId, systemPrompt: systemPrompt.trim() });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <Label>助手名称</Label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="如：写作助手、情节顾问"
+          autoFocus
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>关联模型</Label>
+        <Select value={modelId} onValueChange={(v) => setModelId(v ?? "")}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="选择模型..." />
+          </SelectTrigger>
+          <SelectContent>
+            {models.map((m) => (
+              <SelectItem key={m.id} value={m.id}>
+                {m.name || m.model}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {models.length === 0 && (
+          <p className="text-xs text-muted-foreground/50">请先在「模型」标签页添加模型配置</p>
+        )}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>System Prompt</Label>
+        <Textarea
+          value={systemPrompt}
+          onChange={(e) => setSystemPrompt(e.target.value)}
+          placeholder="定义助手的角色、行为和规则..."
+          rows={6}
+          className="resize-y"
+        />
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>取消</Button>
+        <Button type="submit" disabled={saving || !name.trim() || !modelId}>
+          {saving ? "保存中..." : isEdit ? "更新" : "添加"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+};
+
 const SettingsPage = () => {
-  const [models, setModels] = useState<AiConfig[]>([]);
   const navigate = useNavigate();
+  const [models, setModels] = useState<AiConfig[]>([]);
+  const [agents, setAgents] = useState<AiAgent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
+
+  const [showModelForm, setShowModelForm] = useState(false);
   const [editingModel, setEditingModel] = useState<AiConfig | null>(null);
 
-  const loadModels = async () => {
+  const [showAgentForm, setShowAgentForm] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<AiAgent | null>(null);
+
+  const loadAll = async () => {
     try {
-      const data = await aiApi.listModels();
-      setModels(data);
+      const [modelData, agentData] = await Promise.all([
+        aiApi.listModels(),
+        aiApi.listAgents(),
+      ]);
+      setModels(modelData);
+      setAgents(agentData);
     } catch (err) {
-      console.error("Failed to load models:", err);
+      console.error("Failed to load settings:", err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadModels();
+    loadAll();
   }, []);
 
-  const handleCreate = async (data: { name: string; apiKey: string; model: string; baseUrl: string }) => {
+  const handleCreateModel = async (data: { name: string; apiKey: string; model: string; baseUrl: string }) => {
     await aiApi.createModel(data.name, data.apiKey, data.model, data.baseUrl);
-    await loadModels();
-    setShowForm(false);
+    await loadAll();
+    setShowModelForm(false);
   };
 
-  const handleUpdate = async (data: { name: string; apiKey: string; model: string; baseUrl: string }) => {
+  const handleUpdateModel = async (data: { name: string; apiKey: string; model: string; baseUrl: string }) => {
     if (!editingModel) return;
     await aiApi.updateModel(editingModel.id, data.name, data.apiKey, data.model, data.baseUrl);
-    await loadModels();
+    await loadAll();
     setEditingModel(null);
+    setShowModelForm(false);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDeleteModel = async (id: string) => {
     await aiApi.deleteModel(id);
     setModels((prev) => prev.filter((m) => m.id !== id));
   };
 
-  const handleSetDefault = async (id: string) => {
+  const handleSetDefaultModel = async (id: string) => {
     await aiApi.setDefault(id);
     setModels((prev) => prev.map((m) => ({ ...m, is_default: m.id === id })));
+  };
+
+  const handleCreateAgent = async (data: { name: string; modelId: string; systemPrompt: string }) => {
+    await aiApi.createAgent(data.name, data.modelId, data.systemPrompt);
+    await loadAll();
+    setShowAgentForm(false);
+  };
+
+  const handleUpdateAgent = async (data: { name: string; modelId: string; systemPrompt: string }) => {
+    if (!editingAgent) return;
+    await aiApi.updateAgent(editingAgent.id, data.name, data.modelId, data.systemPrompt);
+    await loadAll();
+    setEditingAgent(null);
+    setShowAgentForm(false);
+  };
+
+  const handleDeleteAgent = async (id: string) => {
+    await aiApi.deleteAgent(id);
+    setAgents((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleSetDefaultAgent = async (id: string) => {
+    await aiApi.setDefaultAgent(id);
+    setAgents((prev) => prev.map((a) => ({ ...a, is_default: a.id === id })));
   };
 
   return (
@@ -361,57 +511,116 @@ const SettingsPage = () => {
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-2xl">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-primary/12">
-                    <Zap className="size-4 text-primary/80" />
+          <Tabs defaultValue="models">
+            <TabsList>
+              <TabsTrigger value="models">模型</TabsTrigger>
+              <TabsTrigger value="agents">助手</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="models">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex size-8 items-center justify-center rounded-lg bg-primary/12">
+                        <Zap className="size-4 text-primary/80" />
+                      </div>
+                      <div>
+                        <CardTitle>AI 模型配置</CardTitle>
+                        <CardDescription>管理 API 连接和模型</CardDescription>
+                      </div>
+                    </div>
+                    <Button onClick={() => { setEditingModel(null); setShowModelForm(true); }} data-icon="inline-start">
+                      <Plus />
+                      添加模型
+                    </Button>
                   </div>
-                  <div>
-                    <CardTitle>AI 模型配置</CardTitle>
-                    <CardDescription>管理多个 AI 模型配置</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {loading ? (
+                    <div className="flex h-20 items-center justify-center">
+                      <Spinner className="size-5 text-primary" />
+                    </div>
+                  ) : models.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground/60">
+                      <Cpu className="size-8 text-muted-foreground/30" />
+                      <p className="text-sm">还没有配置模型</p>
+                      <Button variant="outline" size="sm" onClick={() => { setEditingModel(null); setShowModelForm(true); }} data-icon="inline-start">
+                        <Plus />
+                        添加模型
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {models.map((m) => (
+                        <ModelCard
+                          key={m.id}
+                          model={m}
+                          onEdit={(model) => { setEditingModel(model); setShowModelForm(true); }}
+                          onDelete={handleDeleteModel}
+                          onSetDefault={handleSetDefaultModel}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="agents">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex size-8 items-center justify-center rounded-lg bg-cyan-500/12">
+                        <Bot className="size-4 text-cyan-500/80" />
+                      </div>
+                      <div>
+                        <CardTitle>AI 助手</CardTitle>
+                        <CardDescription>配置不同角色的 AI 助手</CardDescription>
+                      </div>
+                    </div>
+                    <Button onClick={() => { setEditingAgent(null); setShowAgentForm(true); }} data-icon="inline-start">
+                      <Plus />
+                      添加助手
+                    </Button>
                   </div>
-                </div>
-                <Button onClick={() => { setEditingModel(null); setShowForm(true); }} data-icon="inline-start">
-                  <Plus />
-                  添加模型
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex h-20 items-center justify-center">
-                  <Spinner className="size-5 text-primary" />
-                </div>
-              ) : models.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground/60">
-                  <Cpu className="size-8 text-muted-foreground/30" />
-                  <p className="text-sm">还没有配置模型</p>
-                  <Button variant="outline" size="sm" onClick={() => { setEditingModel(null); setShowForm(true); }} data-icon="inline-start">
-                    <Plus />
-                    添加模型
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {models.map((m) => (
-                    <ModelCard
-                      key={m.id}
-                      model={m}
-                      onEdit={(model) => { setEditingModel(model); setShowForm(true); }}
-                      onDelete={handleDelete}
-                      onSetDefault={handleSetDefault}
-                    />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardHeader>
+                <CardContent>
+                  {loading ? (
+                    <div className="flex h-20 items-center justify-center">
+                      <Spinner className="size-5 text-primary" />
+                    </div>
+                  ) : agents.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground/60">
+                      <Bot className="size-8 text-muted-foreground/30" />
+                      <p className="text-sm">还没有配置助手</p>
+                      <Button variant="outline" size="sm" onClick={() => { setEditingAgent(null); setShowAgentForm(true); }} data-icon="inline-start">
+                        <Plus />
+                        添加助手
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {agents.map((a) => (
+                        <AgentCard
+                          key={a.id}
+                          agent={a}
+                          onEdit={(agent) => { setEditingAgent(agent); setShowAgentForm(true); }}
+                          onDelete={handleDeleteAgent}
+                          onSetDefault={handleSetDefaultAgent}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
 
-      <Dialog open={showForm} onOpenChange={(isOpen) => { if (!isOpen) { setShowForm(false); setEditingModel(null); } }}>
+      <Dialog open={showModelForm} onOpenChange={(isOpen) => { if (!isOpen) { setShowModelForm(false); setEditingModel(null); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{editingModel ? "编辑模型" : "添加模型"}</DialogTitle>
@@ -420,8 +629,24 @@ const SettingsPage = () => {
           <ModelForm
             key={editingModel?.id ?? "new"}
             initial={editingModel}
-            onSave={editingModel ? handleUpdate : handleCreate}
-            onCancel={() => { setShowForm(false); setEditingModel(null); }}
+            onSave={editingModel ? handleUpdateModel : handleCreateModel}
+            onCancel={() => { setShowModelForm(false); setEditingModel(null); }}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAgentForm} onOpenChange={(isOpen) => { if (!isOpen) { setShowAgentForm(false); setEditingAgent(null); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingAgent ? "编辑助手" : "添加助手"}</DialogTitle>
+            <DialogDescription>{editingAgent ? "修改 AI 助手配置" : "添加一个新的 AI 助手"}</DialogDescription>
+          </DialogHeader>
+          <AgentForm
+            key={editingAgent?.id ?? "new"}
+            initial={editingAgent}
+            models={models}
+            onSave={editingAgent ? handleUpdateAgent : handleCreateAgent}
+            onCancel={() => { setShowAgentForm(false); setEditingAgent(null); }}
           />
         </DialogContent>
       </Dialog>

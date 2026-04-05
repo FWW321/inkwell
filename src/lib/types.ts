@@ -63,6 +63,16 @@ export interface AiConfig {
   created_at: string;
 }
 
+export interface AiAgent {
+  id: string;
+  name: string;
+  model_id: string;
+  system_prompt: string;
+  is_default: boolean;
+  created_at: string;
+  model_name?: string | null;
+}
+
 export interface AiMessage {
   role: "user" | "assistant" | "system";
   content: string;

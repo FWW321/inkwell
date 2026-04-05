@@ -9,7 +9,7 @@ use serde::Deserialize;
 use tauri::ipc::Channel;
 use uuid::Uuid;
 
-use crate::db::models::AiConfig;
+use crate::db::models::{AiAgent, AiConfig};
 use crate::error::{AppError, AppResult};
 use crate::services::context_service;
 
@@ -110,6 +110,159 @@ pub fn get_default_config(conn: &Connection) -> AppResult<AiConfig> {
     }
 }
 
+pub fn get_model(conn: &Connection, id: &str) -> AppResult<AiConfig> {
+    conn.query_row(
+        "SELECT id, name, api_key, model, base_url, is_default, created_at FROM ai_models WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(AiConfig {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                api_key: row.get(2)?,
+                model: row.get(3)?,
+                base_url: row.get(4)?,
+                is_default: row.get::<_, i32>(5)? != 0,
+                created_at: row.get(6)?,
+            })
+        },
+    ).map_err(|_| AppError::NotFound("模型不存在".to_string()))
+}
+
+pub fn list_agents(conn: &Connection) -> AppResult<Vec<AiAgent>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.name, a.model_id, a.system_prompt, a.is_default, a.created_at, m.name AS model_name \
+         FROM ai_agents a LEFT JOIN ai_models m ON a.model_id = m.id \
+         ORDER BY a.is_default DESC, a.created_at ASC"
+    )?;
+    let agents = stmt
+        .query_map([], |row| {
+            Ok(AiAgent {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                model_id: row.get(2)?,
+                system_prompt: row.get(3)?,
+                is_default: row.get::<_, i32>(4)? != 0,
+                created_at: row.get(5)?,
+                model_name: row.get(6)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(agents)
+}
+
+pub fn get_default_agent(conn: &Connection) -> AppResult<AiAgent> {
+    let result = conn.query_row(
+        "SELECT a.id, a.name, a.model_id, a.system_prompt, a.is_default, a.created_at, m.name AS model_name \
+         FROM ai_agents a LEFT JOIN ai_models m ON a.model_id = m.id \
+         WHERE a.is_default = 1 LIMIT 1",
+        [],
+        |row| {
+            Ok(AiAgent {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                model_id: row.get(2)?,
+                system_prompt: row.get(3)?,
+                is_default: row.get::<_, i32>(4)? != 0,
+                created_at: row.get(5)?,
+                model_name: row.get(6)?,
+            })
+        },
+    );
+    match result {
+        Ok(a) => Ok(a),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            let agents = list_agents(conn)?;
+            agents.into_iter().next().ok_or(AppError::Ai("请先配置 AI 助手".to_string()))
+        }
+        Err(e) => Err(AppError::Database(e)),
+    }
+}
+
+pub fn create_agent(conn: &Connection, name: &str, model_id: &str, system_prompt: &str) -> AppResult<AiAgent> {
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM ai_agents", [], |r| r.get(0))?;
+    let is_default = count == 0;
+    conn.execute(
+        "INSERT INTO ai_agents (id, name, model_id, system_prompt, is_default, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, name, model_id, system_prompt, is_default, now],
+    ).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("UNIQUE constraint failed") && msg.contains("name") {
+            AppError::Ai("已存在同名的助手".to_string())
+        } else if msg.contains("FOREIGN KEY constraint failed") {
+            AppError::Ai("关联的模型不存在".to_string())
+        } else {
+            AppError::Database(e)
+        }
+    })?;
+    get_agent(conn, &id)
+}
+
+pub fn update_agent(conn: &Connection, id: &str, name: &str, model_id: &str, system_prompt: &str) -> AppResult<AiAgent> {
+    conn.execute(
+        "UPDATE ai_agents SET name = ?1, model_id = ?2, system_prompt = ?3 WHERE id = ?4",
+        params![name, model_id, system_prompt, id],
+    ).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("UNIQUE constraint failed") && msg.contains("name") {
+            AppError::Ai("已存在同名的助手".to_string())
+        } else if msg.contains("FOREIGN KEY constraint failed") {
+            AppError::Ai("关联的模型不存在".to_string())
+        } else {
+            AppError::Database(e)
+        }
+    })?;
+    get_agent(conn, id)
+}
+
+pub fn delete_agent(conn: &Connection, id: &str) -> AppResult<()> {
+    let was_default: bool = conn.query_row(
+        "SELECT is_default FROM ai_agents WHERE id = ?1",
+        params![id],
+        |r| r.get::<_, i32>(0).map(|v| v != 0),
+    ).map_err(|_| AppError::NotFound("助手不存在".to_string()))?;
+
+    conn.execute("DELETE FROM ai_agents WHERE id = ?1", params![id])?;
+
+    if was_default {
+        if let Ok(first) = conn.query_row(
+            "SELECT id FROM ai_agents ORDER BY created_at ASC LIMIT 1",
+            [],
+            |r| r.get::<_, String>(0),
+        ) {
+            conn.execute("UPDATE ai_agents SET is_default = 1 WHERE id = ?1", params![first])?;
+        }
+    }
+    Ok(())
+}
+
+pub fn set_default_agent(conn: &Connection, id: &str) -> AppResult<()> {
+    conn.execute("UPDATE ai_agents SET is_default = 0", [])?;
+    conn.execute("UPDATE ai_agents SET is_default = 1 WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+fn get_agent(conn: &Connection, id: &str) -> AppResult<AiAgent> {
+    conn.query_row(
+        "SELECT a.id, a.name, a.model_id, a.system_prompt, a.is_default, a.created_at, m.name AS model_name \
+         FROM ai_agents a LEFT JOIN ai_models m ON a.model_id = m.id \
+         WHERE a.id = ?1",
+        params![id],
+        |row| {
+            Ok(AiAgent {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                model_id: row.get(2)?,
+                system_prompt: row.get(3)?,
+                is_default: row.get::<_, i32>(4)? != 0,
+                created_at: row.get(5)?,
+                model_name: row.get(6)?,
+            })
+        },
+    ).map_err(|_| AppError::NotFound("助手不存在".to_string()))
+}
+
 pub fn create_model(conn: &Connection, name: &str, api_key: &str, model: &str, base_url: &str) -> AppResult<AiConfig> {
     let id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
@@ -173,24 +326,6 @@ pub fn set_default_model(conn: &Connection, id: &str) -> AppResult<()> {
     conn.execute("UPDATE ai_models SET is_default = 0", [])?;
     conn.execute("UPDATE ai_models SET is_default = 1 WHERE id = ?1", params![id])?;
     Ok(())
-}
-
-fn get_model(conn: &Connection, id: &str) -> AppResult<AiConfig> {
-    conn.query_row(
-        "SELECT id, name, api_key, model, base_url, is_default, created_at FROM ai_models WHERE id = ?1",
-        params![id],
-        |row| {
-            Ok(AiConfig {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                api_key: row.get(2)?,
-                model: row.get(3)?,
-                base_url: row.get(4)?,
-                is_default: row.get::<_, i32>(5)? != 0,
-                created_at: row.get(6)?,
-            })
-        },
-    ).map_err(|_| AppError::NotFound("模型不存在".to_string()))
 }
 
 pub fn set_config(conn: &Connection, api_key: &str, model: &str, base_url: &str) -> AppResult<()> {

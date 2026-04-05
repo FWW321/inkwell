@@ -63,6 +63,16 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
             UNIQUE(name)
         );
 
+        CREATE TABLE IF NOT EXISTS ai_agents (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            model_id TEXT NOT NULL REFERENCES ai_models(id) ON DELETE CASCADE,
+            system_prompt TEXT NOT NULL DEFAULT '',
+            is_default INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(name)
+        );
+
         CREATE TABLE IF NOT EXISTS ai_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

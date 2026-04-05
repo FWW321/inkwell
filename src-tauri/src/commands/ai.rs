@@ -1,7 +1,7 @@
 use tauri::ipc::Channel;
 use tauri::State;
 
-use crate::db::models::AiConfig;
+use crate::db::models::{AiAgent, AiConfig};
 use crate::error::AppResult;
 use crate::services::ai_service::{self, StreamChunk};
 use crate::state::AppState;
@@ -66,6 +66,47 @@ pub fn delete_ai_model(state: State<AppState>, id: String) -> AppResult<()> {
 pub fn set_default_ai_model(state: State<AppState>, id: String) -> AppResult<()> {
     let conn = get_conn!(state);
     ai_service::set_default_model(&conn, &id)
+}
+
+#[tauri::command]
+pub fn list_ai_agents(state: State<AppState>) -> AppResult<Vec<AiAgent>> {
+    let conn = get_conn!(state);
+    ai_service::list_agents(&conn)
+}
+
+#[tauri::command]
+pub fn create_ai_agent(
+    state: State<AppState>,
+    name: String,
+    model_id: String,
+    system_prompt: String,
+) -> AppResult<AiAgent> {
+    let conn = get_conn!(state);
+    ai_service::create_agent(&conn, &name, &model_id, &system_prompt)
+}
+
+#[tauri::command]
+pub fn update_ai_agent(
+    state: State<AppState>,
+    id: String,
+    name: String,
+    model_id: String,
+    system_prompt: String,
+) -> AppResult<AiAgent> {
+    let conn = get_conn!(state);
+    ai_service::update_agent(&conn, &id, &name, &model_id, &system_prompt)
+}
+
+#[tauri::command]
+pub fn delete_ai_agent(state: State<AppState>, id: String) -> AppResult<()> {
+    let conn = get_conn!(state);
+    ai_service::delete_agent(&conn, &id)
+}
+
+#[tauri::command]
+pub fn set_default_ai_agent(state: State<AppState>, id: String) -> AppResult<()> {
+    let conn = get_conn!(state);
+    ai_service::set_default_agent(&conn, &id)
 }
 
 #[tauri::command]

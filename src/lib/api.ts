@@ -5,6 +5,7 @@ import type {
   Character,
   WorldviewEntry,
   AiConfig,
+  AiAgent,
   StreamChunk,
 } from "./types";
 
@@ -102,6 +103,13 @@ export const aiApi = {
   setDefault: (id: string) => invoke<void>("set_default_ai_model", { id }),
   fetchAvailableModels: (apiKey?: string, baseUrl?: string) =>
     invoke<string[]>("list_models", { apiKey, baseUrl }),
+  listAgents: () => invoke<AiAgent[]>("list_ai_agents"),
+  createAgent: (name: string, modelId: string, systemPrompt: string) =>
+    invoke<AiAgent>("create_ai_agent", { name, modelId, systemPrompt }),
+  updateAgent: (id: string, name: string, modelId: string, systemPrompt: string) =>
+    invoke<AiAgent>("update_ai_agent", { id, name, modelId, systemPrompt }),
+  deleteAgent: (id: string) => invoke<void>("delete_ai_agent", { id }),
+  setDefaultAgent: (id: string) => invoke<void>("set_default_ai_agent", { id }),
   continueWriting: (context: string, style: string, length: string) =>
     invoke<string>("ai_continue_writing", { context, style, length }),
   rewrite: (selectedText: string, instruction: string) =>
