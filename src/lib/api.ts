@@ -11,10 +11,10 @@ import type {
 export const projectApi = {
   list: () => invoke<Project[]>("list_projects"),
   get: (id: string) => invoke<Project>("get_project", { id }),
-  create: (title: string, description: string) =>
-    invoke<Project>("create_project", { title, description }),
-  update: (id: string, title: string, description: string) =>
-    invoke<Project>("update_project", { id, title, description }),
+  create: (title: string, description: string, author: string, language: string, tags: string, status: string) =>
+    invoke<Project>("create_project", { title, description, author, language, tags, status }),
+  update: (id: string, title: string, description: string, author: string, language: string, tags: string, status: string) =>
+    invoke<Project>("update_project", { id, title, description, author, language, tags, status }),
   delete: (id: string) => invoke<void>("delete_project", { id }),
 };
 
@@ -93,10 +93,14 @@ export const worldviewApi = {
 };
 
 export const aiApi = {
-  getConfig: () => invoke<AiConfig>("get_ai_config"),
-  setConfig: (apiKey: string, model: string, baseUrl: string) =>
-    invoke<void>("set_ai_config", { apiKey, model, baseUrl }),
-  listModels: (apiKey?: string, baseUrl?: string) =>
+  listModels: () => invoke<AiConfig[]>("list_ai_models"),
+  createModel: (name: string, apiKey: string, model: string, baseUrl: string) =>
+    invoke<AiConfig>("create_ai_model", { name, apiKey, model, baseUrl }),
+  updateModel: (id: string, name: string, apiKey: string, model: string, baseUrl: string) =>
+    invoke<AiConfig>("update_ai_model", { id, name, apiKey, model, baseUrl }),
+  deleteModel: (id: string) => invoke<void>("delete_ai_model", { id }),
+  setDefault: (id: string) => invoke<void>("set_default_ai_model", { id }),
+  fetchAvailableModels: (apiKey?: string, baseUrl?: string) =>
     invoke<string[]>("list_models", { apiKey, baseUrl }),
   continueWriting: (context: string, style: string, length: string) =>
     invoke<string>("ai_continue_writing", { context, style, length }),

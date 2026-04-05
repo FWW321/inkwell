@@ -7,6 +7,7 @@ import EditorPage from "@/pages/EditorPage";
 import CharactersPage from "@/pages/CharactersPage";
 import WorldviewPage from "@/pages/WorldviewPage";
 import SettingsPage from "@/pages/SettingsPage";
+import ProjectDetailsPage from "@/pages/ProjectDetailsPage";
 
 const App = () => {
   return (
@@ -15,13 +16,14 @@ const App = () => {
         <Routes>
           <Route element={<AppLayout />}>
             <Route path="/" element={<ProjectsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route path="/project/:projectId" element={<ProjectLayout />}>
             <Route path="write" element={<EditorPage />} />
             <Route path="write/:chapterId" element={<EditorPage />} />
             <Route path="characters" element={<CharactersPage />} />
             <Route path="worldview" element={<WorldviewPage />} />
-            <Route path="settings" element={<SettingsPage />} />
+            <Route path="details" element={<ProjectDetailsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

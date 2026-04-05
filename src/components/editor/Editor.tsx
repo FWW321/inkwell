@@ -39,7 +39,6 @@ import {
 import { outlineApi } from "@/lib/api";
 import type { OutlineNode, ChapterStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Select, SelectTrigger, SelectContent, SelectGroup, SelectItem, SelectValue } from "@/components/ui/select";
@@ -48,15 +47,16 @@ import { useEditorSelection } from "@/hooks/useEditorSelection";
 import { useAiEditor } from "@/contexts/AiEditorContext";
 import AiPanel from "@/components/ai/AiPanel";
 import AiFloatingPanel from "@/components/editor/AiFloatingPanel";
+import { cn } from "@/lib/utils";
 
 interface EditorProps {
   chapterId: string;
 }
 
-const statusConfig: Record<ChapterStatus, { label: string; variant: "secondary" | "default" | "outline" }> = {
-  draft: { label: "草稿", variant: "secondary" },
-  completed: { label: "已完成", variant: "default" },
-  revising: { label: "修订中", variant: "outline" },
+const statusConfig: Record<ChapterStatus, { label: string; dot: string }> = {
+  draft: { label: "草稿", dot: "bg-muted-foreground/50" },
+  completed: { label: "已完成", dot: "bg-green-500" },
+  revising: { label: "修订中", dot: "bg-amber-500" },
 };
 
 const countWords = (text: string): number => {
@@ -146,7 +146,7 @@ const Editor = ({ chapterId }: EditorProps) => {
     if (editor) {
       (editor.commands as any).clearInlineDiff();
     }
-  }, [editor, aiDiffActive, node]);
+  }, [editor, aiDiffActive, node, setGeneratedText]);
 
   const handleAccept = useCallback(() => {
     if (!editor || !aiDiffActive) return;
@@ -437,104 +437,28 @@ const Editor = ({ chapterId }: EditorProps) => {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border px-6 py-2.5">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => handleTitleChange(e.target.value)}
-            className="flex-1 min-w-0 bg-transparent text-lg font-semibold text-foreground outline-none placeholder:text-muted-foreground/40 transition-colors"
-            placeholder="章节标题..."
-          />
-        </div>
-        <div className="flex items-center gap-2 shrink-0 ml-4">
-          <Select value={status} onValueChange={handleStatusChange}>
-            <SelectTrigger size="sm">
-              <SelectValue placeholder="选择状态">{statusConfig[status].label}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {Object.entries(statusConfig).map(([key, { label }]) => (
-                  <SelectItem key={key} value={key}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <Badge variant={statusConfig[status].variant}>
-            {statusConfig[status].label}
-          </Badge>
-          <Separator orientation="vertical" />
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <FileText className="size-3" />
-            <span>{wordCount} 字</span>
-          </div>
-          {saving && (
-            <div className="flex items-center gap-1 text-xs text-primary/70">
-              <Save className="size-3 animate-pulse-subtle" />
-              <span>保存中</span>
-            </div>
-          )}
-          <Separator orientation="vertical" />
-          <Button
-            variant={aiPanelOpen ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setAiPanelOpen(!aiPanelOpen)}
-            data-icon="inline-start"
-          >
-            <Sparkles />
-            AI
-          </Button>
-        </div>
+      <div className="flex items-center gap-3 border-b border-border px-5 h-11 shrink-0">
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => handleTitleChange(e.target.value)}
+          className="flex-1 min-w-0 bg-transparent text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground/40"
+          placeholder="章节标题..."
+        />
+        <Button
+          variant={aiPanelOpen ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => setAiPanelOpen(!aiPanelOpen)}
+          data-icon="inline-start"
+          className="shrink-0"
+        >
+          <Sparkles />
+          AI
+        </Button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex items-center gap-0.5 border-b border-border px-4 py-1">
-            {fmtBtn(Undo, "撤销", () => editor?.chain().focus().undo().run())}
-            {fmtBtn(Redo, "重做", () => editor?.chain().focus().redo().run())}
-            <Separator orientation="vertical" className="mx-1" />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Select>
-                    <SelectTrigger size="sm" className="w-auto px-1">
-                      <SelectValue placeholder="">
-                        {editor?.isActive("heading", { level: 1 }) ? <Heading1 className="size-3.5" /> : editor?.isActive("heading", { level: 2 }) ? <Heading2 className="size-3.5" /> : editor?.isActive("heading", { level: 3 }) ? <Heading3 className="size-3.5" /> : <span className="text-xs font-medium">正文</span>}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="paragraph" onClick={() => editor?.chain().focus().setParagraph().run()}>正文</SelectItem>
-                        <SelectItem value="heading1" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}>标题 1</SelectItem>
-                        <SelectItem value="heading2" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>标题 2</SelectItem>
-                        <SelectItem value="heading3" onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}>标题 3</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                }
-              />
-              <TooltipContent>段落样式</TooltipContent>
-            </Tooltip>
-            <Separator orientation="vertical" className="mx-1" />
-            {fmtBtn(Bold, "加粗", () => editor?.chain().focus().toggleBold().run(), editor?.isActive("bold"))}
-            {fmtBtn(Italic, "斜体", () => editor?.chain().focus().toggleItalic().run(), editor?.isActive("italic"))}
-            {fmtBtn(UnderlineIcon, "下划线", () => editor?.chain().focus().toggleUnderline().run(), editor?.isActive("underline"))}
-            {fmtBtn(Strikethrough, "删除线", () => editor?.chain().focus().toggleStrike().run(), editor?.isActive("strike"))}
-            {fmtBtn(Code, "行内代码", () => editor?.chain().focus().toggleCode().run(), editor?.isActive("code"))}
-            {fmtBtn(Highlighter, "高亮", () => editor?.chain().focus().toggleHighlight().run(), editor?.isActive("highlight"))}
-            <Separator orientation="vertical" className="mx-1" />
-            {fmtBtn(AlignLeft, "左对齐", () => editor?.chain().focus().setTextAlign("left").run(), editor?.isActive({ textAlign: "left" }))}
-            {fmtBtn(AlignCenter, "居中", () => editor?.chain().focus().setTextAlign("center").run(), editor?.isActive({ textAlign: "center" }))}
-            {fmtBtn(AlignRight, "右对齐", () => editor?.chain().focus().setTextAlign("right").run(), editor?.isActive({ textAlign: "right" }))}
-            <Separator orientation="vertical" className="mx-1" />
-            {fmtBtn(List, "无序列表", () => editor?.chain().focus().toggleBulletList().run(), editor?.isActive("bulletList"))}
-            {fmtBtn(ListOrdered, "有序列表", () => editor?.chain().focus().toggleOrderedList().run(), editor?.isActive("orderedList"))}
-            {fmtBtn(Quote, "引用", () => editor?.chain().focus().toggleBlockquote().run(), editor?.isActive("blockquote"))}
-            {fmtBtn(Minus, "分割线", () => editor?.chain().focus().setHorizontalRule().run())}
-          </div>
-
           <div className="flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl px-8 py-10 relative">
               {editor && (
@@ -549,48 +473,86 @@ const Editor = ({ chapterId }: EditorProps) => {
                   }}
                 >
                   <div className="flex items-center gap-0.5 rounded-xl border border-border bg-popover/95 backdrop-blur-sm px-1 py-1 shadow-lg">
-                    {fmtBtn(Bold, "加粗", () => editor.chain().focus().toggleBold().run(), editor.isActive("bold"))}
-                    {fmtBtn(Italic, "斜体", () => editor.chain().focus().toggleItalic().run(), editor.isActive("italic"))}
-                    {fmtBtn(UnderlineIcon, "下划线", () => editor.chain().focus().toggleUnderline().run(), editor.isActive("underline"))}
-                    {fmtBtn(Strikethrough, "删除线", () => editor.chain().focus().toggleStrike().run(), editor.isActive("strike"))}
-                    {fmtBtn(Highlighter, "高亮", () => editor.chain().focus().toggleHighlight().run(), editor.isActive("highlight"))}
+                    {fmtBtn(Undo, "撤销", () => editor.chain().focus().undo().run())}
+                    {fmtBtn(Redo, "重做", () => editor.chain().focus().redo().run())}
                     <Separator orientation="vertical" className="mx-0.5 !h-4" />
-                    {!aiDiffActive && (<>
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            onClick={() => handleFloatingAction("polish")}
-                            data-icon="inline-start"
-                            className="text-xs"
-                          >
-                            <Paintbrush />
-                            润色
-                          </Button>
+                          <Select>
+                            <SelectTrigger size="sm" className="w-auto px-1">
+                              <SelectValue placeholder="">
+                                {editor?.isActive("heading", { level: 1 }) ? <Heading1 className="size-3.5" /> : editor?.isActive("heading", { level: 2 }) ? <Heading2 className="size-3.5" /> : editor?.isActive("heading", { level: 3 }) ? <Heading3 className="size-3.5" /> : <span className="text-xs font-medium">正文</span>}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                <SelectItem value="paragraph" onClick={() => editor?.chain().focus().setParagraph().run()}>正文</SelectItem>
+                                <SelectItem value="heading1" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}>标题 1</SelectItem>
+                                <SelectItem value="heading2" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>标题 2</SelectItem>
+                                <SelectItem value="heading3" onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}>标题 3</SelectItem>
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
                         }
                       />
-                      <TooltipContent>AI 润色选中文字</TooltipContent>
+                      <TooltipContent>段落样式</TooltipContent>
                     </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            onClick={() => handleFloatingAction("rewrite")}
-                            data-icon="inline-start"
-                            className="text-xs"
-                          >
-                            <Wand2 />
-                            改写
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>AI 改写选中文字</TooltipContent>
-                    </Tooltip>
-                    </>)}
+                    <Separator orientation="vertical" className="mx-0.5 !h-4" />
+                    {fmtBtn(Bold, "加粗", () => editor.chain().focus().toggleBold().run(), editor?.isActive("bold"))}
+                    {fmtBtn(Italic, "斜体", () => editor.chain().focus().toggleItalic().run(), editor?.isActive("italic"))}
+                    {fmtBtn(UnderlineIcon, "下划线", () => editor.chain().focus().toggleUnderline().run(), editor?.isActive("underline"))}
+                    {fmtBtn(Strikethrough, "删除线", () => editor.chain().focus().toggleStrike().run(), editor?.isActive("strike"))}
+                    {fmtBtn(Code, "行内代码", () => editor.chain().focus().toggleCode().run(), editor?.isActive("code"))}
+                    {fmtBtn(Highlighter, "高亮", () => editor.chain().focus().toggleHighlight().run(), editor?.isActive("highlight"))}
+                    <Separator orientation="vertical" className="mx-0.5 !h-4" />
+                    {fmtBtn(AlignLeft, "左对齐", () => editor.chain().focus().setTextAlign("left").run(), editor?.isActive({ textAlign: "left" }))}
+                    {fmtBtn(AlignCenter, "居中", () => editor.chain().focus().setTextAlign("center").run(), editor?.isActive({ textAlign: "center" }))}
+                    {fmtBtn(AlignRight, "右对齐", () => editor.chain().focus().setTextAlign("right").run(), editor?.isActive({ textAlign: "right" }))}
+                    <Separator orientation="vertical" className="mx-0.5 !h-4" />
+                    {fmtBtn(List, "无序列表", () => editor.chain().focus().toggleBulletList().run(), editor?.isActive("bulletList"))}
+                    {fmtBtn(ListOrdered, "有序列表", () => editor.chain().focus().toggleOrderedList().run(), editor?.isActive("orderedList"))}
+                    {fmtBtn(Quote, "引用", () => editor.chain().focus().toggleBlockquote().run(), editor?.isActive("blockquote"))}
+                    {fmtBtn(Minus, "分割线", () => editor.chain().focus().setHorizontalRule().run())}
+                    {!aiDiffActive && (
+                      <>
+                        <Separator orientation="vertical" className="mx-0.5 !h-4" />
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => handleFloatingAction("polish")}
+                                data-icon="inline-start"
+                                className="text-xs text-primary hover:text-primary"
+                              >
+                                <Paintbrush />
+                                润色
+                              </Button>
+                            }
+                          />
+                          <TooltipContent>AI 润色选中文字</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => handleFloatingAction("rewrite")}
+                                data-icon="inline-start"
+                                className="text-xs text-primary hover:text-primary"
+                              >
+                                <Wand2 />
+                                改写
+                              </Button>
+                            }
+                          />
+                          <TooltipContent>AI 改写选中文字</TooltipContent>
+                        </Tooltip>
+                      </>
+                    )}
                     <Tooltip>
                       <TooltipTrigger
                         render={
@@ -634,7 +596,7 @@ const Editor = ({ chapterId }: EditorProps) => {
                     <Check className="size-3" />
                     接受
                   </button>
-                  <span className="text-muted-foreground/30 text-[10px]">·</span>
+                  <span className="text-muted-foreground/30 text-[10px]">|</span>
                   <button
                     className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md hover:bg-muted text-muted-foreground cursor-pointer transition-colors"
                     onMouseDown={(e) => { e.preventDefault(); handleReject(); }}
@@ -644,6 +606,38 @@ const Editor = ({ chapterId }: EditorProps) => {
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-border px-5 h-7 shrink-0">
+            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <FileText className="size-3" />
+                {wordCount} 字
+              </span>
+              {saving && (
+                <span className="flex items-center gap-1 text-primary/60">
+                  <Save className="size-3 animate-pulse-subtle" />
+                  保存中
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={status} onValueChange={handleStatusChange}>
+                <SelectTrigger size="sm" className="w-auto h-6 gap-1.5 px-2 text-[11px]">
+                  <SelectValue placeholder="状态">{statusConfig[status].label}</SelectValue>
+                </SelectTrigger>
+                <SelectContent side="top">
+                  <SelectGroup>
+                    {Object.entries(statusConfig).map(([key, { label }]) => (
+                      <SelectItem key={key} value={key}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <span className={cn("size-1.5 rounded-full", statusConfig[status].dot)} />
             </div>
           </div>
         </div>

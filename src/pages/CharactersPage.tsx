@@ -276,13 +276,8 @@ const CharactersPage = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">角色管理</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            创建和管理故事中的角色
-          </p>
-        </div>
+      <div className="flex items-center justify-between px-5 h-11 shrink-0">
+        <h1 className="text-sm font-medium text-foreground">角色管理</h1>
         <Button onClick={() => setShowCreate(true)} data-icon="inline-start">
           <Plus />
           新建角色

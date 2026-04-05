@@ -50,6 +50,8 @@
             wrapGAppsHook4
             glib-networking
             at-spi2-atk
+
+            python3
           ];
 
           shellHook = ''

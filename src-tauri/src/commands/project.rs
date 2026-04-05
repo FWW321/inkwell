@@ -27,12 +27,16 @@ pub fn create_project(
     state: State<AppState>,
     title: String,
     description: String,
+    author: String,
+    language: String,
+    tags: String,
+    status: String,
 ) -> AppResult<Project> {
     let conn = state
         .db
         .lock()
         .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-    project_service::create(&conn, &title, &description)
+    project_service::create(&conn, &title, &description, &author, &language, &tags, &status)
 }
 
 #[tauri::command]
@@ -41,12 +45,16 @@ pub fn update_project(
     id: String,
     title: String,
     description: String,
+    author: String,
+    language: String,
+    tags: String,
+    status: String,
 ) -> AppResult<Project> {
     let conn = state
         .db
         .lock()
         .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-    project_service::update(&conn, &id, &title, &description)
+    project_service::update(&conn, &id, &title, &description, &author, &language, &tags, &status)
 }
 
 #[tauri::command]

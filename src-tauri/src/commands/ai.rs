@@ -12,7 +12,7 @@ macro_rules! get_config_from_state {
             .db
             .lock()
             .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-        ai_service::get_config(&conn)?
+        ai_service::get_default_config(&conn)?
     }};
 }
 
@@ -26,20 +26,46 @@ macro_rules! get_conn {
 }
 
 #[tauri::command]
-pub fn get_ai_config(state: State<AppState>) -> AppResult<AiConfig> {
+pub fn list_ai_models(state: State<AppState>) -> AppResult<Vec<AiConfig>> {
     let conn = get_conn!(state);
-    ai_service::get_config(&conn)
+    ai_service::list_models(&conn)
 }
 
 #[tauri::command]
-pub fn set_ai_config(
+pub fn create_ai_model(
     state: State<AppState>,
+    name: String,
     api_key: String,
     model: String,
     base_url: String,
-) -> AppResult<()> {
+) -> AppResult<AiConfig> {
     let conn = get_conn!(state);
-    ai_service::set_config(&conn, &api_key, &model, &base_url)
+    ai_service::create_model(&conn, &name, &api_key, &model, &base_url)
+}
+
+#[tauri::command]
+pub fn update_ai_model(
+    state: State<AppState>,
+    id: String,
+    name: String,
+    api_key: String,
+    model: String,
+    base_url: String,
+) -> AppResult<AiConfig> {
+    let conn = get_conn!(state);
+    ai_service::update_model(&conn, &id, &name, &api_key, &model, &base_url)
+}
+
+#[tauri::command]
+pub fn delete_ai_model(state: State<AppState>, id: String) -> AppResult<()> {
+    let conn = get_conn!(state);
+    ai_service::delete_model(&conn, &id)
+}
+
+#[tauri::command]
+pub fn set_default_ai_model(state: State<AppState>, id: String) -> AppResult<()> {
+    let conn = get_conn!(state);
+    ai_service::set_default_model(&conn, &id)
 }
 
 #[tauri::command]
@@ -52,7 +78,7 @@ pub async fn list_models(
         Some(k) if !k.is_empty() => k,
         _ => {
             let conn = get_conn!(state);
-            let cfg = ai_service::get_config(&conn)?;
+            let cfg = ai_service::get_default_config(&conn)?;
             cfg.api_key
         }
     };
@@ -60,11 +86,11 @@ pub async fn list_models(
         Some(u) if !u.is_empty() => u,
         _ => {
             let conn = get_conn!(state);
-            let cfg = ai_service::get_config(&conn)?;
+            let cfg = ai_service::get_default_config(&conn)?;
             cfg.base_url
         }
     };
-    ai_service::list_models(&key, &url).await
+    ai_service::fetch_available_models(&key, &url).await
 }
 
 #[tauri::command]

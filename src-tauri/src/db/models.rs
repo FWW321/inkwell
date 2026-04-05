@@ -5,6 +5,10 @@ pub struct Project {
     pub id: String,
     pub title: String,
     pub description: String,
+    pub author: String,
+    pub language: String,
+    pub tags: String,
+    pub status: String,
     pub cover_url: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -55,7 +59,11 @@ pub struct WorldviewEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiConfig {
+    pub id: String,
+    pub name: String,
     pub api_key: String,
     pub model: String,
     pub base_url: String,
+    pub is_default: bool,
+    pub created_at: String,
 }

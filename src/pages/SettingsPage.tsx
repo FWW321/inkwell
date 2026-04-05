@@ -1,5 +1,14 @@
 import { useState, useEffect } from "react";
-import { Key, Cpu, Globe, Save, Check, RefreshCw, ChevronDown, Settings, Zap, ChevronRight } from "lucide-react";
+import {
+  Cpu,
+  RefreshCw,
+  ChevronDown,
+  Zap,
+  Trash2,
+  Plus,
+  Pencil,
+  Star,
+} from "lucide-react";
 import { aiApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AiConfig } from "@/lib/types";
@@ -9,6 +18,67 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+
+const ModelCard = ({
+  model,
+  onEdit,
+  onDelete,
+  onSetDefault,
+}: {
+  model: AiConfig;
+  onEdit: (m: AiConfig) => void;
+  onDelete: (id: string) => void;
+  onSetDefault: (id: string) => void;
+}) => {
+  return (
+    <Card className={cn("transition-all duration-150", model.is_default && "ring-primary/30 border-primary/20")}>
+      <div className="flex items-center gap-3 px-4 py-3.5">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/12">
+          <Cpu className="size-4 text-primary/80" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-card-foreground truncate">{model.name || model.model}</p>
+            {model.is_default && (
+              <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-primary/15 text-primary">默认</span>
+            )}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground/60 truncate">{model.model}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground/40 truncate">{model.base_url}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          {!model.is_default && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onSetDefault(model.id)}
+              className="text-muted-foreground/50 hover:text-amber-500"
+            >
+              <Star className="size-3.5" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onEdit(model)}
+            className="text-muted-foreground/50 hover:text-foreground"
+          >
+            <Pencil className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onDelete(model.id)}
+            className="text-muted-foreground/50 hover:text-destructive"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+};
 
 const ModelCombobox = ({
   value,
@@ -91,7 +161,6 @@ const ModelCombobox = ({
                     onClick={() => selectModel(search.trim())}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-primary transition-colors hover:bg-secondary"
                   >
-                    <ChevronRight className="size-3.5" />
                     使用「{search.trim()}」
                   </button>
                 )}
@@ -131,29 +200,30 @@ const ModelCombobox = ({
   );
 };
 
-const SettingsPage = () => {
-  const [config, setConfig] = useState<AiConfig>({
-    api_key: "",
-    model: "",
-    base_url: "https://api.openai.com/v1",
-  });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+const ModelForm = ({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial?: AiConfig | null;
+  onSave: (data: { name: string; apiKey: string; model: string; baseUrl: string }) => void;
+  onCancel: () => void;
+}) => {
+  const [name, setName] = useState(initial?.name ?? "");
+  const [apiKey, setApiKey] = useState(initial?.api_key ?? "");
+  const [baseUrl, setBaseUrl] = useState(initial?.base_url ?? "https://api.openai.com/v1");
+  const [model, setModel] = useState(initial?.model ?? "");
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const isEdit = !!initial;
 
-  const handleFetchModels = async (apiKey?: string, baseUrl?: string, currentModel?: string) => {
-    const key = apiKey ?? config.api_key;
-    const url = baseUrl ?? config.base_url;
-    if (!key.trim()) return;
+  const handleFetchModels = async () => {
+    if (!apiKey.trim()) return;
     setModelsLoading(true);
     try {
-      const list = await aiApi.listModels(key, url);
+      const list = await aiApi.fetchAvailableModels(apiKey.trim(), baseUrl.trim());
       setModels(list);
-      if (!currentModel && list.length > 0) {
-        setConfig((prev) => ({ ...prev, model: list[0] }));
-      }
     } catch (err) {
       console.error("Failed to fetch models:", err);
     } finally {
@@ -161,151 +231,194 @@ const SettingsPage = () => {
     }
   };
 
-  useEffect(() => {
-    const loadConfig = async () => {
-      try {
-        const data = await aiApi.getConfig();
-        setConfig(data);
-        if (data.api_key.trim()) {
-          handleFetchModels(data.api_key, data.base_url, data.model);
-        }
-      } catch (err) {
-        console.error("Failed to load config:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadConfig();
-  }, []);
-
-  const handleSave = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !model.trim()) return;
     setSaving(true);
-    setSaved(false);
     try {
-      await aiApi.setConfig(config.api_key, config.model, config.base_url);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (err) {
-      console.error("Failed to save config:", err);
+      await onSave({ name: name.trim(), apiKey: apiKey.trim(), model: model.trim(), baseUrl: baseUrl.trim() });
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Spinner className="size-5 text-primary" />
-          <p className="text-sm text-muted-foreground">加载中...</p>
-        </div>
+  useEffect(() => {
+    if (apiKey.trim() && baseUrl.trim()) {
+      handleFetchModels();
+    }
+  }, []);
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <Label>配置名称</Label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="如：GPT-4o、DeepSeek V3"
+          autoFocus
+        />
       </div>
-    );
-  }
+      <div className="flex flex-col gap-1.5">
+        <Label>API Key</Label>
+        <Input
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="sk-..."
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>API Base URL</Label>
+        <Input
+          type="text"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder="https://api.openai.com/v1"
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>模型</Label>
+        <ModelCombobox
+          value={model}
+          onChange={setModel}
+          models={models}
+          loading={modelsLoading}
+        />
+        <button
+          type="button"
+          onClick={handleFetchModels}
+          className="self-start text-xs text-primary/60 hover:text-primary transition-colors"
+        >
+          重新获取模型列表
+        </button>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>取消</Button>
+        <Button type="submit" disabled={saving || !name.trim() || !model.trim()}>
+          {saving ? "保存中..." : isEdit ? "更新" : "添加"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+};
+
+const SettingsPage = () => {
+  const [models, setModels] = useState<AiConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingModel, setEditingModel] = useState<AiConfig | null>(null);
+
+  const loadModels = async () => {
+    try {
+      const data = await aiApi.listModels();
+      setModels(data);
+    } catch (err) {
+      console.error("Failed to load models:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadModels();
+  }, []);
+
+  const handleCreate = async (data: { name: string; apiKey: string; model: string; baseUrl: string }) => {
+    await aiApi.createModel(data.name, data.apiKey, data.model, data.baseUrl);
+    await loadModels();
+    setShowForm(false);
+  };
+
+  const handleUpdate = async (data: { name: string; apiKey: string; model: string; baseUrl: string }) => {
+    if (!editingModel) return;
+    await aiApi.updateModel(editingModel.id, data.name, data.apiKey, data.model, data.baseUrl);
+    await loadModels();
+    setEditingModel(null);
+  };
+
+  const handleDelete = async (id: string) => {
+    await aiApi.deleteModel(id);
+    setModels((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const handleSetDefault = async (id: string) => {
+    await aiApi.setDefault(id);
+    setModels((prev) => prev.map((m) => ({ ...m, is_default: m.id === id })));
+  };
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-border px-6 py-4">
-        <div className="flex items-center gap-2.5">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/15">
-            <Settings className="size-4 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-foreground">设置</h1>
-            <p className="text-sm text-muted-foreground">配置 AI 模型和 API 连接</p>
-          </div>
-        </div>
+      <div className="flex items-center justify-between px-5 h-11 shrink-0">
+        <h1 className="text-sm font-medium text-foreground">设置</h1>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-2xl">
           <Card>
             <CardHeader>
-              <div className="flex items-center gap-2.5">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-primary/12">
-                  <Zap className="size-4 text-primary/80" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-primary/12">
+                    <Zap className="size-4 text-primary/80" />
+                  </div>
+                  <div>
+                    <CardTitle>AI 模型配置</CardTitle>
+                    <CardDescription>管理多个 AI 模型配置</CardDescription>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle>AI 配置</CardTitle>
-                  <CardDescription>连接 OpenAI 兼容的 API 服务</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-5">
-              <div className="flex flex-col gap-1.5">
-                <Label data-icon="inline-start">
-                  <Globe />
-                  API Base URL
-                </Label>
-                <Input
-                  type="text"
-                  value={config.base_url}
-                  onChange={(e) =>
-                    setConfig((prev) => ({
-                      ...prev,
-                      base_url: e.target.value,
-                    }))
-                  }
-                  placeholder="https://api.openai.com/v1"
-                />
-                <p className="text-xs text-muted-foreground/70">
-                  支持所有 OpenAI 兼容 API 格式的服务地址
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <Label data-icon="inline-start">
-                  <Key />
-                  API Key
-                </Label>
-                <Input
-                  type="password"
-                  value={config.api_key}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, api_key: e.target.value }))
-                  }
-                  placeholder="sk-..."
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <Label data-icon="inline-start">
-                  <Cpu />
-                  模型
-                </Label>
-                <ModelCombobox
-                  value={config.model}
-                  onChange={(val) =>
-                    setConfig((prev) => ({ ...prev, model: val }))
-                  }
-                  models={models}
-                  loading={modelsLoading}
-                />
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <Button
-                  onClick={handleSave}
-                  disabled={saving || !config.api_key.trim() || !config.model.trim()}
-                  data-icon="inline-start"
-                >
-                  {saved ? (
-                    <>
-                      <Check />
-                      已保存
-                    </>
-                  ) : (
-                    <>
-                      <Save />
-                      {saving ? "保存中..." : "保存配置"}
-                    </>
-                  )}
+                <Button onClick={() => { setEditingModel(null); setShowForm(true); }} data-icon="inline-start">
+                  <Plus />
+                  添加模型
                 </Button>
               </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex h-20 items-center justify-center">
+                  <Spinner className="size-5 text-primary" />
+                </div>
+              ) : models.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground/60">
+                  <Cpu className="size-8 text-muted-foreground/30" />
+                  <p className="text-sm">还没有配置模型</p>
+                  <Button variant="outline" size="sm" onClick={() => { setEditingModel(null); setShowForm(true); }} data-icon="inline-start">
+                    <Plus />
+                    添加模型
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {models.map((m) => (
+                    <ModelCard
+                      key={m.id}
+                      model={m}
+                      onEdit={(model) => { setEditingModel(model); setShowForm(true); }}
+                      onDelete={handleDelete}
+                      onSetDefault={handleSetDefault}
+                    />
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
       </div>
+
+      <Dialog open={showForm} onOpenChange={(isOpen) => { if (!isOpen) { setShowForm(false); setEditingModel(null); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingModel ? "编辑模型" : "添加模型"}</DialogTitle>
+            <DialogDescription>{editingModel ? "修改 AI 模型配置" : "添加一个新的 AI 模型配置"}</DialogDescription>
+          </DialogHeader>
+          <ModelForm
+            key={editingModel?.id ?? "new"}
+            initial={editingModel}
+            onSave={editingModel ? handleUpdate : handleCreate}
+            onCancel={() => { setShowForm(false); setEditingModel(null); }}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

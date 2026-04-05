@@ -7,6 +7,7 @@ use rig::streaming::StreamingPrompt;
 use rusqlite::{Connection, params};
 use serde::Deserialize;
 use tauri::ipc::Channel;
+use uuid::Uuid;
 
 use crate::db::models::AiConfig;
 use crate::error::{AppError, AppResult};
@@ -30,7 +31,7 @@ struct ModelObject {
     id: String,
 }
 
-pub async fn list_models(api_key: &str, base_url: &str) -> AppResult<Vec<String>> {
+pub async fn fetch_available_models(api_key: &str, base_url: &str) -> AppResult<Vec<String>> {
     if api_key.is_empty() {
         return Err(AppError::Ai("请先配置 API Key".to_string()));
     }
@@ -62,24 +63,139 @@ pub async fn list_models(api_key: &str, base_url: &str) -> AppResult<Vec<String>
     Ok(ids)
 }
 
-pub fn get_config(conn: &Connection) -> AppResult<AiConfig> {
-    conn.query_row(
-        "SELECT api_key, model, base_url FROM ai_config WHERE id = 1",
+pub fn list_models(conn: &Connection) -> AppResult<Vec<AiConfig>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, api_key, model, base_url, is_default, created_at FROM ai_models ORDER BY is_default DESC, created_at ASC"
+    )?;
+    let models = stmt
+        .query_map([], |row| {
+            Ok(AiConfig {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                api_key: row.get(2)?,
+                model: row.get(3)?,
+                base_url: row.get(4)?,
+                is_default: row.get::<_, i32>(5)? != 0,
+                created_at: row.get(6)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(models)
+}
+
+pub fn get_default_config(conn: &Connection) -> AppResult<AiConfig> {
+    let result = conn.query_row(
+        "SELECT id, name, api_key, model, base_url, is_default, created_at FROM ai_models WHERE is_default = 1 LIMIT 1",
         [],
         |row| {
             Ok(AiConfig {
-                api_key: row.get(0)?,
-                model: row.get(1)?,
-                base_url: row.get(2)?,
+                id: row.get(0)?,
+                name: row.get(1)?,
+                api_key: row.get(2)?,
+                model: row.get(3)?,
+                base_url: row.get(4)?,
+                is_default: row.get::<_, i32>(5)? != 0,
+                created_at: row.get(6)?,
             })
         },
-    )
-    .map_err(AppError::Database)
+    );
+
+    match result {
+        Ok(c) => Ok(c),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            let models = list_models(conn)?;
+            models.into_iter().next().ok_or(AppError::Ai("请先配置 AI 模型".to_string()))
+        }
+        Err(e) => Err(AppError::Database(e)),
+    }
+}
+
+pub fn create_model(conn: &Connection, name: &str, api_key: &str, model: &str, base_url: &str) -> AppResult<AiConfig> {
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM ai_models", [], |r| r.get(0))?;
+    let is_default = count == 0;
+    conn.execute(
+        "INSERT INTO ai_models (id, name, api_key, model, base_url, is_default, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![id, name, api_key, model, base_url, is_default, now],
+    ).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("UNIQUE constraint failed") && msg.contains("name") {
+            AppError::Ai("已存在同名配置".to_string())
+        } else if msg.contains("UNIQUE constraint failed") {
+            AppError::Ai("已存在相同配置的模型（API Key + Base URL + 模型名称重复）".to_string())
+        } else {
+            AppError::Database(e)
+        }
+    })?;
+    get_model(conn, &id)
+}
+
+pub fn update_model(conn: &Connection, id: &str, name: &str, api_key: &str, model: &str, base_url: &str) -> AppResult<AiConfig> {
+    conn.execute(
+        "UPDATE ai_models SET name = ?1, api_key = ?2, model = ?3, base_url = ?4 WHERE id = ?5",
+        params![name, api_key, model, base_url, id],
+    ).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("UNIQUE constraint failed") && msg.contains("name") {
+            AppError::Ai("已存在同名配置".to_string())
+        } else if msg.contains("UNIQUE constraint failed") {
+            AppError::Ai("已存在相同配置的模型（API Key + Base URL + 模型名称重复）".to_string())
+        } else {
+            AppError::Database(e)
+        }
+    })?;
+    get_model(conn, id)
+}
+
+pub fn delete_model(conn: &Connection, id: &str) -> AppResult<()> {
+    let was_default: bool = conn.query_row(
+        "SELECT is_default FROM ai_models WHERE id = ?1",
+        params![id],
+        |r| r.get::<_, i32>(0).map(|v| v != 0),
+    ).map_err(|_| AppError::NotFound("模型不存在".to_string()))?;
+
+    conn.execute("DELETE FROM ai_models WHERE id = ?1", params![id])?;
+
+    if was_default {
+        if let Ok(first) = conn.query_row(
+            "SELECT id FROM ai_models ORDER BY created_at ASC LIMIT 1",
+            [],
+            |r| r.get::<_, String>(0),
+        ) {
+            conn.execute("UPDATE ai_models SET is_default = 1 WHERE id = ?1", params![first])?;
+        }
+    }
+    Ok(())
+}
+
+pub fn set_default_model(conn: &Connection, id: &str) -> AppResult<()> {
+    conn.execute("UPDATE ai_models SET is_default = 0", [])?;
+    conn.execute("UPDATE ai_models SET is_default = 1 WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+fn get_model(conn: &Connection, id: &str) -> AppResult<AiConfig> {
+    conn.query_row(
+        "SELECT id, name, api_key, model, base_url, is_default, created_at FROM ai_models WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(AiConfig {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                api_key: row.get(2)?,
+                model: row.get(3)?,
+                base_url: row.get(4)?,
+                is_default: row.get::<_, i32>(5)? != 0,
+                created_at: row.get(6)?,
+            })
+        },
+    ).map_err(|_| AppError::NotFound("模型不存在".to_string()))
 }
 
 pub fn set_config(conn: &Connection, api_key: &str, model: &str, base_url: &str) -> AppResult<()> {
     conn.execute(
-        "UPDATE ai_config SET api_key = ?1, model = ?2, base_url = ?3 WHERE id = 1",
+        "UPDATE ai_models SET api_key = ?1, model = ?2, base_url = ?3 WHERE is_default = 1",
         params![api_key, model, base_url],
     )?;
     Ok(())

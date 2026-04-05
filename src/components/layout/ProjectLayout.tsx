@@ -1,107 +1,205 @@
-import { useState } from "react";
-import { Outlet, useParams, Link, useLocation } from "react-router-dom";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { Outlet, useParams, Link, useLocation, useNavigate } from "react-router-dom";
 import {
   PanelLeftClose,
   PanelLeft,
-  Settings,
+  PenLine,
   Users,
   Globe,
-  PenLine,
+  Settings,
   Feather,
+  BookOpen,
+  BookMarked,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import ChapterTree from "@/components/chapter/ChapterTree";
+import { projectApi } from "@/lib/api";
 
 const navItems = [
   { path: "write", label: "写作", icon: PenLine },
   { path: "characters", label: "角色", icon: Users },
   { path: "worldview", label: "世界观", icon: Globe },
-  { path: "settings", label: "设置", icon: Settings },
-];
+  { path: "details", label: "详情", icon: BookMarked },
+] as const;
+
+const SIDEBAR_MIN = 180;
+const SIDEBAR_DEFAULT = 260;
+const SIDEBAR_MAX = 400;
 
 const ProjectLayout = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const [projectName, setProjectName] = useState("");
+  const isResizing = useRef(false);
+  const resizeStartX = useRef(0);
+  const resizeStartWidth = useRef(0);
 
   const activeNav = navItems.find((item) =>
     pathname.includes(`/project/${projectId}/${item.path}`),
   );
 
+  useEffect(() => {
+    if (!projectId) return;
+    projectApi.get(projectId).then((p) => setProjectName(p.title)).catch(() => {});
+  }, [projectId]);
+
+  const handleNavClick = useCallback(
+    (path: string) => {
+      navigate(`/project/${projectId}/${path}`);
+    },
+    [navigate, projectId],
+  );
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = sidebarWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const delta = e.clientX - resizeStartX.current;
+      const next = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, resizeStartWidth.current + delta));
+      setSidebarWidth(next);
+    };
+
+    const handleMouseUp = () => {
+      if (!isResizing.current) return;
+      isResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
+
   return (
-    <div className="flex h-screen">
-      <aside
-        className={cn(
-          "flex flex-col border-r border-border bg-sidebar transition-all duration-200 ease-out",
-          sidebarOpen ? "w-60" : "w-14",
-        )}
-      >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-3">
-          {sidebarOpen && (
-            <Link
-              to="/"
-              className="flex items-center gap-2 text-sm font-semibold text-sidebar-foreground transition-colors hover:text-foreground"
-            >
-              <div className="flex size-7 items-center justify-center rounded-md bg-primary/15">
-                <Feather className="size-3.5 text-primary" />
-              </div>
-              Inkwell
-            </Link>
-          )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className={cn(!sidebarOpen && "mx-auto")}
+    <div className="flex h-screen overflow-hidden">
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center border-r border-sidebar-border bg-sidebar py-2 gap-1">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Link
+                to="/"
+                className="flex size-8 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              >
+                <Feather className="size-4" />
+              </Link>
+            }
+          />
+          <TooltipContent side="right">返回项目</TooltipContent>
+        </Tooltip>
+
+        <div className="mx-2 my-1 h-px w-5 bg-sidebar-border" />
+
+        {navItems.map((item) => {
+          const isActive = activeNav?.path === item.path;
+          return (
+            <Tooltip key={item.path}>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick(item.path)}
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-lg transition-colors",
+                      isActive
+                        ? "bg-primary/15 text-primary"
+                        : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                    )}
+                  >
+                    <item.icon className="size-4" />
+                  </button>
+                }
+              />
+              <TooltipContent side="right">{item.label}</TooltipContent>
+            </Tooltip>
+          );
+        })}
+
+        <div className="flex-1" />
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Link
+                to="/settings"
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-lg transition-colors",
+                  pathname === "/settings"
+                    ? "bg-primary/15 text-primary"
+                    : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                )}
+              >
+                <Settings className="size-4" />
+              </Link>
+            }
+          />
+          <TooltipContent side="right">设置</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+              >
+                {sidebarOpen ? <PanelLeftClose className="size-3.5" /> : <PanelLeft className="size-3.5" />}
+              </Button>
+            }
+          />
+          <TooltipContent side="right">{sidebarOpen ? "收起侧栏" : "展开侧栏"}</TooltipContent>
+        </Tooltip>
+      </aside>
+
+      {sidebarOpen && activeNav?.path === "write" && (
+        <>
+          <aside
+            className="flex h-full shrink-0 flex-col border-r border-border bg-background transition-none"
+            style={{ width: sidebarWidth }}
           >
-            {sidebarOpen ? (
-              <PanelLeftClose />
-            ) : (
-              <PanelLeft />
-            )}
-          </Button>
-        </div>
-        {sidebarOpen && projectId && (
-          <div className="flex-1 overflow-y-auto">
-            <ChapterTree projectId={projectId} />
+            <div className="flex items-center gap-2 px-4 h-9 shrink-0 border-b border-border">
+              <BookOpen className="size-3.5 text-primary/50 shrink-0" />
+              <span className="text-xs font-medium text-foreground/80 truncate">{projectName}</span>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {projectId && <ChapterTree projectId={projectId} />}
+            </div>
+          </aside>
+          <div
+            className="w-px shrink-0 cursor-col-resize bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors"
+            onMouseDown={handleMouseDown}
+          />
+        </>
+      )}
+
+      <main className="flex-1 overflow-hidden bg-background flex flex-col">
+        {projectName && activeNav?.path !== "write" && (
+          <div className="flex items-center gap-2 border-b border-border px-5 h-8 shrink-0">
+            <BookOpen className="size-3 text-primary/40 shrink-0" />
+            <span className="text-xs text-muted-foreground/60 truncate">{projectName}</span>
           </div>
         )}
-        <Separator />
-        <nav className="p-1.5">
-          {navItems.map((item) => {
-            const isActive = activeNav?.path === item.path;
-            return (
-              <Tooltip key={item.path}>
-                <TooltipTrigger
-                  render={
-                    <Link
-                      to={`/project/${projectId}/${item.path}`}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-all",
-                        !sidebarOpen && "justify-center px-0",
-                        isActive
-                          ? "bg-primary/12 text-primary font-medium"
-                          : "text-sidebar-foreground/70 hover:bg-secondary hover:text-sidebar-foreground",
-                      )}
-                    />
-                  }
-                >
-                  <item.icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
-                  {sidebarOpen && <span>{item.label}</span>}
-                </TooltipTrigger>
-                {!sidebarOpen && (
-                  <TooltipContent side="right">{item.label}</TooltipContent>
-                )}
-              </Tooltip>
-            );
-          })}
-        </nav>
-      </aside>
-      <main className="flex-1 overflow-hidden bg-background">
-        <Outlet />
+        <div className="flex-1 overflow-hidden">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

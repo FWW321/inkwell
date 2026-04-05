@@ -1,7 +1,13 @@
+export type ProjectStatus = "ongoing" | "completed" | "hiatus";
+
 export interface Project {
   id: string;
   title: string;
   description: string;
+  author: string;
+  language: string;
+  tags: string;
+  status: ProjectStatus;
   cover_url: string | null;
   created_at: string;
   updated_at: string;
@@ -48,9 +54,13 @@ export interface WorldviewEntry {
 }
 
 export interface AiConfig {
+  id: string;
+  name: string;
   api_key: string;
   model: string;
   base_url: string;
+  is_default: boolean;
+  created_at: string;
 }
 
 export interface AiMessage {
