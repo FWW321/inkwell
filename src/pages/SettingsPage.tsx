@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Cpu,
   RefreshCw,
@@ -8,6 +9,7 @@ import {
   Plus,
   Pencil,
   Star,
+  ArrowLeft,
 } from "lucide-react";
 import { aiApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -305,6 +307,7 @@ const ModelForm = ({
 
 const SettingsPage = () => {
   const [models, setModels] = useState<AiConfig[]>([]);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingModel, setEditingModel] = useState<AiConfig | null>(null);
@@ -349,7 +352,10 @@ const SettingsPage = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between px-5 h-11 shrink-0">
+      <div className="flex items-center gap-2 px-5 h-11 shrink-0">
+        <Button variant="ghost" size="sm" className="size-8 p-0" onClick={() => navigate("/")}>
+          <ArrowLeft className="size-4" />
+        </Button>
         <h1 className="text-sm font-medium text-foreground">设置</h1>
       </div>
 
