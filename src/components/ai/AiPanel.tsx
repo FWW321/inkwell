@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Sparkles,
   PenLine,
@@ -10,18 +10,25 @@ import {
   Check,
   X,
   ArrowDownToLine,
+  Square,
 } from "lucide-react";
 
 import { aiApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
-
-type AiMode = "continue" | "rewrite" | "polish" | "dialogue" | "chat";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
+import { Empty, EmptyHeader, EmptyMedia, EmptyDescription } from "@/components/ui/empty";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Select, SelectTrigger, SelectContent, SelectGroup, SelectItem, SelectValue } from "@/components/ui/select";
+import { useAiEditor } from "@/contexts/AiEditorContext";
+import type { AiMode } from "@/lib/types";
 
 interface AiPanelProps {
   open: boolean;
   onClose: () => void;
-  selectedText: string;
-  onInsert: (text: string) => void;
 }
 
 const modes: { key: AiMode; label: string; icon: typeof Sparkles }[] = [
@@ -32,300 +39,260 @@ const modes: { key: AiMode; label: string; icon: typeof Sparkles }[] = [
   { key: "chat", label: "聊天", icon: MessagesSquare },
 ];
 
-const ContinuePanel = ({
-  onResult,
-}: { onResult: (text: string) => void }) => {
-  const [context, setContext] = useState("");
+const styleOptions = [
+  { value: "文学小说", label: "文学小说" },
+  { value: "悬疑推理", label: "悬疑推理" },
+  { value: "奇幻冒险", label: "奇幻冒险" },
+  { value: "都市情感", label: "都市情感" },
+  { value: "历史传记", label: "历史传记" },
+];
+
+const lengthOptions = [
+  { value: "short", label: "短 (100-200字)" },
+  { value: "medium", label: "中 (300-500字)" },
+  { value: "long", label: "长 (600-1000字)" },
+];
+
+const ContinuePanel = () => {
+  const { editorState, startStreaming, isStreaming } = useAiEditor();
   const [style, setStyle] = useState("文学小说");
   const [length, setLength] = useState("medium");
-  const [result, setResult] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  const handleGenerate = async () => {
-    if (!context.trim()) return;
-    setLoading(true);
-    setResult("");
-    try {
-      const text = await aiApi.continueWriting(context, style, length);
-      setResult(text);
-      onResult(text);
-    } catch (err) {
-      setResult(`错误: ${err}`);
-    } finally {
-      setLoading(false);
-    }
+  const handleGenerate = () => {
+    const context = editorState.cursorBefore || "";
+    if (!context.trim() && !editorState.hasSelection) return;
+    startStreaming({
+      mode: "continue",
+      text: editorState.selectedText || context,
+      style,
+      length,
+    });
   };
 
+  const canGenerate =
+    (editorState.cursorBefore || editorState.selectedText).trim().length > 0;
+
   return (
-    <div className="space-y-3">
-      <textarea
-        value={context}
-        onChange={(e) => setContext(e.target.value)}
-        placeholder="粘贴或输入前文内容..."
-        rows={4}
-        className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary resize-none transition-colors"
-      />
-      <div className="flex gap-2">
-        <select
-          value={style}
-          onChange={(e) => setStyle(e.target.value)}
-          className="flex-1 rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none cursor-pointer transition-colors"
-          style={{ colorScheme: "dark" }}
-        >
-          <option value="文学小说">文学小说</option>
-          <option value="悬疑推理">悬疑推理</option>
-          <option value="奇幻冒险">奇幻冒险</option>
-          <option value="都市情感">都市情感</option>
-          <option value="历史传记">历史传记</option>
-        </select>
-        <select
-          value={length}
-          onChange={(e) => setLength(e.target.value)}
-          className="flex-1 rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none cursor-pointer transition-colors"
-          style={{ colorScheme: "dark" }}
-        >
-          <option value="short">短 (100-200字)</option>
-          <option value="medium">中 (300-500字)</option>
-          <option value="long">长 (600-1000字)</option>
-        </select>
-      </div>
-      <button
-        onClick={handleGenerate}
-        disabled={loading || !context.trim()}
-        className={cn(
-          "w-full rounded-lg px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-          "bg-primary hover:bg-primary/90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
-        )}
-      >
-        {loading ? "生成中..." : "续写"}
-      </button>
-      {result && (
-        <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm whitespace-pre-wrap animate-fade-in">
-          {result}
+    <div className="flex flex-col gap-3">
+      {editorState.cursorBefore && (
+        <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground max-h-24 overflow-y-auto">
+          <div className="mb-1 font-medium text-foreground/60">当前上下文</div>
+          <div className="whitespace-pre-wrap line-clamp-4">
+            {editorState.cursorBefore.slice(-200)}
+            {editorState.cursorBefore.length > 200 && "..."}
+          </div>
         </div>
       )}
+      <div className="flex gap-2">
+        <div className="flex flex-col gap-1.5 flex-1">
+          <Label className="text-xs">风格</Label>
+          <Select value={style} onValueChange={(v) => { if (v) setStyle(v); }}>
+            <SelectTrigger size="sm" className="w-full">
+              <SelectValue>{styleOptions.find(o => o.value === style)?.label}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {styleOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5 flex-1">
+          <Label className="text-xs">长度</Label>
+          <Select value={length} onValueChange={(v) => { if (v) setLength(v); }}>
+            <SelectTrigger size="sm" className="w-full">
+              <SelectValue>{lengthOptions.find(o => o.value === length)?.label}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {lengthOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <Button
+        onClick={handleGenerate}
+        disabled={isStreaming || !canGenerate}
+        className="w-full"
+      >
+        {isStreaming ? "生成中..." : "续写"}
+      </Button>
     </div>
   );
 };
 
-const RewritePanel = ({
-  selectedText,
-  onResult,
-}: {
-  selectedText: string;
-  onResult: (text: string) => void;
-}) => {
-  const [text, setText] = useState(selectedText);
+const RewritePanel = () => {
+  const { editorState, startStreaming, isStreaming } = useAiEditor();
   const [instruction, setInstruction] = useState("");
-  const [result, setResult] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [localText, setLocalText] = useState("");
 
-  const handleRewrite = async () => {
+  const text = editorState.selectedText || localText;
+
+  const handleRewrite = () => {
     if (!text.trim()) return;
-    setLoading(true);
-    setResult("");
-    try {
-      const res = await aiApi.rewrite(text, instruction || "改写");
-      setResult(res);
-      onResult(res);
-    } catch (err) {
-      setResult(`错误: ${err}`);
-    } finally {
-      setLoading(false);
-    }
+    startStreaming({
+      mode: "rewrite",
+      text,
+      instruction: instruction || undefined,
+    });
   };
 
   return (
-    <div className="space-y-3">
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="输入要改写的文字..."
-        rows={3}
-        className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary resize-none transition-colors"
-      />
-      <input
+    <div className="flex flex-col gap-3">
+      {editorState.hasSelection ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+          <div className="mb-1 text-xs text-primary font-medium">选中的文字</div>
+          <div className="whitespace-pre-wrap max-h-32 overflow-y-auto">
+            {editorState.selectedText.slice(0, 300)}
+            {editorState.selectedText.length > 300 && "..."}
+          </div>
+        </div>
+      ) : (
+        <Textarea
+          value={localText}
+          onChange={(e) => setLocalText(e.target.value)}
+          placeholder="输入要改写的文字..."
+          rows={4}
+        />
+      )}
+      <Input
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
         placeholder="改写指令（如：更正式、更活泼...）"
-        className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
       />
-      <button
+      <Button
         onClick={handleRewrite}
-        disabled={loading || !text.trim()}
-        className={cn(
-          "w-full rounded-lg px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-          "bg-primary hover:bg-primary/90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
-        )}
+        disabled={isStreaming || !text.trim()}
+        className="w-full"
       >
-        {loading ? "改写中..." : "改写"}
-      </button>
-      {result && (
-        <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm whitespace-pre-wrap animate-fade-in">
-          {result}
-        </div>
-      )}
+        {isStreaming ? "改写中..." : "改写"}
+      </Button>
     </div>
   );
 };
 
-const PolishPanel = ({
-  selectedText,
-  onResult,
-}: {
-  selectedText: string;
-  onResult: (text: string) => void;
-}) => {
-  const [text, setText] = useState(selectedText);
-  const [result, setResult] = useState("");
-  const [loading, setLoading] = useState(false);
+const PolishPanel = () => {
+  const { editorState, startStreaming, isStreaming } = useAiEditor();
+  const [localText, setLocalText] = useState("");
 
-  const handlePolish = async () => {
+  const text = editorState.selectedText || localText;
+
+  const handlePolish = () => {
     if (!text.trim()) return;
-    setLoading(true);
-    setResult("");
-    try {
-      const res = await aiApi.polish(text);
-      setResult(res);
-      onResult(res);
-    } catch (err) {
-      setResult(`错误: ${err}`);
-    } finally {
-      setLoading(false);
-    }
+    startStreaming({ mode: "polish", text });
   };
 
   return (
-    <div className="space-y-3">
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="输入要润色的文字..."
-        rows={4}
-        className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary resize-none transition-colors"
-      />
-      <button
-        onClick={handlePolish}
-        disabled={loading || !text.trim()}
-        className={cn(
-          "w-full rounded-lg px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-          "bg-primary hover:bg-primary/90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
-        )}
-      >
-        {loading ? "润色中..." : "润色"}
-      </button>
-      {result && (
-        <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm whitespace-pre-wrap animate-fade-in">
-          {result}
+    <div className="flex flex-col gap-3">
+      {editorState.hasSelection ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+          <div className="mb-1 text-xs text-primary font-medium">选中的文字</div>
+          <div className="whitespace-pre-wrap max-h-32 overflow-y-auto">
+            {editorState.selectedText.slice(0, 300)}
+            {editorState.selectedText.length > 300 && "..."}
+          </div>
         </div>
+      ) : (
+        <Textarea
+          value={localText}
+          onChange={(e) => setLocalText(e.target.value)}
+          placeholder="输入要润色的文字..."
+          rows={4}
+        />
       )}
+      <Button
+        onClick={handlePolish}
+        disabled={isStreaming || !text.trim()}
+        className="w-full"
+      >
+        {isStreaming ? "润色中..." : "润色"}
+      </Button>
     </div>
   );
 };
 
-const DialoguePanel = ({
-  onResult,
-}: { onResult: (text: string) => void }) => {
+const DialoguePanel = () => {
+  const { startStreaming, isStreaming } = useAiEditor();
   const [characters, setCharacters] = useState("");
   const [scenario, setScenario] = useState("");
-  const [result, setResult] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  const handleGenerate = async () => {
+  const handleGenerate = () => {
     if (!characters.trim() || !scenario.trim()) return;
-    setLoading(true);
-    setResult("");
-    try {
-      const res = await aiApi.generateDialogue(characters, scenario);
-      setResult(res);
-      onResult(res);
-    } catch (err) {
-      setResult(`错误: ${err}`);
-    } finally {
-      setLoading(false);
-    }
+    const text = `角色信息：\n${characters}\n\n场景描述：\n${scenario}`;
+    startStreaming({ mode: "dialogue", text });
   };
 
   return (
-    <div className="space-y-3">
-      <textarea
+    <div className="flex flex-col gap-3">
+      <Textarea
         value={characters}
         onChange={(e) => setCharacters(e.target.value)}
         placeholder="描述参与对话的角色（名字、性格、关系）..."
         rows={3}
-        className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary resize-none transition-colors"
       />
-      <textarea
+      <Textarea
         value={scenario}
         onChange={(e) => setScenario(e.target.value)}
         placeholder="描述对话发生的场景..."
         rows={2}
-        className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary resize-none transition-colors"
       />
-      <button
+      <Button
         onClick={handleGenerate}
-        disabled={loading || !characters.trim() || !scenario.trim()}
-        className={cn(
-          "w-full rounded-lg px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-          "bg-primary hover:bg-primary/90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
-        )}
+        disabled={isStreaming || !characters.trim() || !scenario.trim()}
+        className="w-full"
       >
-        {loading ? "生成中..." : "生成对话"}
-      </button>
-      {result && (
-        <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm whitespace-pre-wrap animate-fade-in">
-          {result}
-        </div>
-      )}
+        {isStreaming ? "生成中..." : "生成对话"}
+      </Button>
     </div>
   );
 };
 
-const ChatPanel = ({
-  projectId,
-  onResult,
-}: {
-  projectId: string;
-  onResult: (text: string) => void;
-}) => {
-  const [messages, setMessages] = useState<
-    Array<{ role: string; content: string }>
-  >([]);
+const ChatPanel = () => {
+  const { editorState, startStreaming, isStreaming, streamingText } = useAiEditor();
+  const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [initialLoad, setInitialLoad] = useState(true);
+
+  useEffect(() => {
+    if (initialLoad && editorState.projectId) {
+      aiApi.getChatHistory(editorState.projectId).then((history) => {
+        setMessages(history);
+        setInitialLoad(false);
+      }).catch(() => {
+        setInitialLoad(false);
+      });
+    }
+  }, [editorState.projectId, initialLoad]);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || isStreaming) return;
     const userMsg = input.trim();
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
-    setLoading(true);
-    try {
-      const res = await aiApi.chat(projectId, "general", "", userMsg);
-      setMessages((prev) => [...prev, { role: "assistant", content: res }]);
-      onResult(res);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `错误: ${err}` },
-      ]);
-    } finally {
-      setLoading(false);
-    }
+
+    startStreaming({
+      mode: "chat",
+      text: userMsg,
+    });
   };
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto space-y-3 py-1">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <MessagesSquare className="h-5 w-5 text-primary/70" />
-            </div>
-            <p className="text-sm text-muted-foreground">
-              向 AI 助手咨询写作相关问题
-            </p>
-          </div>
+      <div className="flex-1 overflow-y-auto flex flex-col gap-3 py-1">
+        {messages.length === 0 && !isStreaming && (
+          <Empty className="py-12 border-transparent">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MessagesSquare />
+              </EmptyMedia>
+              <EmptyDescription>向 AI 助手咨询写作相关问题</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
         {messages.map((msg, i) => (
           <div
@@ -340,15 +307,21 @@ const ChatPanel = ({
             {msg.content}
           </div>
         ))}
-        {loading && (
+        {isStreaming && streamingText && (
+          <div className="mr-2 rounded-xl bg-muted/60 px-3.5 py-2.5 text-sm leading-relaxed animate-fade-in">
+            {streamingText}
+            <span className="inline-block size-1.5 ml-0.5 rounded-full bg-primary/50 animate-pulse" />
+          </div>
+        )}
+        {isStreaming && !streamingText && (
           <div className="mr-2 flex items-center gap-2 rounded-xl bg-muted/60 px-3.5 py-2.5 text-sm text-muted-foreground">
-            <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary/50 border-t-transparent" />
+            <Spinner className="size-3 text-primary/50" />
             思考中...
           </div>
         )}
       </div>
       <div className="flex gap-2 pt-3 border-t border-border">
-        <input
+        <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -358,115 +331,151 @@ const ChatPanel = ({
             }
           }}
           placeholder="输入问题..."
-          className="flex-1 rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
+          disabled={isStreaming}
         />
-        <button
-          onClick={handleSend}
-          disabled={loading || !input.trim()}
-          className={cn(
-            "flex items-center justify-center rounded-lg px-3 py-2.5 text-primary-foreground transition-all",
-            "bg-primary hover:bg-primary/90 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed",
-          )}
-        >
-          <Send className="h-4 w-4" />
-        </button>
+        {isStreaming ? (
+          <Button size="icon" variant="destructive" onClick={() => {}}>
+            <Square className="size-3" />
+          </Button>
+        ) : (
+          <Button onClick={handleSend} disabled={!input.trim()} size="icon">
+            <Send />
+          </Button>
+        )}
       </div>
     </div>
   );
 };
 
-const AiPanel = ({ open, onClose, selectedText, onInsert }: AiPanelProps) => {
-  const [activeMode, setActiveMode] = useState<AiMode>("continue");
-  const [generatedText, setGeneratedText] = useState("");
+const AiPanel = ({ open, onClose }: AiPanelProps) => {
+  const {
+    activeMode,
+    setActiveMode,
+    isStreaming,
+    streamingText,
+    generatedText,
+    stopStreaming,
+    replaceSelection,
+    editorState,
+  } = useAiEditor();
+
   const [copied, setCopied] = useState(false);
+
+  const finalText = generatedText || streamingText;
 
   if (!open) return null;
 
-  const handleResult = (text: string) => {
-    setGeneratedText(text);
-  };
-
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(generatedText);
+    await navigator.clipboard.writeText(finalText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleInsert = () => {
+    if (!finalText) return;
+    if (editorState.hasSelection) {
+      replaceSelection(finalText);
+    } else {
+      replaceSelection(finalText);
+    }
   };
 
   return (
     <div className="flex h-full w-[380px] shrink-0 flex-col border-l border-border bg-background animate-fade-in">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15">
-            <Sparkles className="h-3.5 w-3.5 text-primary" />
+          <div className="flex size-7 items-center justify-center rounded-lg bg-primary/15">
+            <Sparkles className="size-3.5 text-primary" />
           </div>
           <span className="text-sm font-semibold text-foreground">AI 助手</span>
+          {isStreaming && (
+            <span className="flex items-center gap-1.5 text-xs text-primary/70">
+              <Spinner className="size-2.5" />
+              输出中
+            </span>
+          )}
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={onClose}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
-          <X className="h-4 w-4" />
-        </button>
+          <X />
+        </Button>
       </div>
 
-      <div className="flex gap-1 border-b border-border px-3 py-2">
-        {modes.map((mode) => (
-          <button
-            key={mode.key}
-            onClick={() => setActiveMode(mode.key)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all",
-              activeMode === mode.key
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-[0.97]",
-            )}
-          >
-            <mode.icon className="h-3 w-3" />
-            {mode.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={activeMode}
+        onValueChange={(v) => setActiveMode(v as AiMode)}
+        className="flex flex-col flex-1 overflow-hidden"
+      >
+        <div className="border-b border-border px-3 py-2">
+          <TabsList variant="line">
+            {modes.map((mode) => (
+              <TabsTrigger key={mode.key} value={mode.key} data-icon="inline-start">
+                <mode.icon />
+                {mode.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        {activeMode === "continue" && (
-          <ContinuePanel onResult={handleResult} />
-        )}
-        {activeMode === "rewrite" && (
-          <RewritePanel selectedText={selectedText} onResult={handleResult} />
-        )}
-        {activeMode === "polish" && (
-          <PolishPanel selectedText={selectedText} onResult={handleResult} />
-        )}
-        {activeMode === "dialogue" && (
-          <DialoguePanel onResult={handleResult} />
-        )}
-        {activeMode === "chat" && (
-          <ChatPanel projectId="" onResult={handleResult} />
-        )}
-      </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <TabsContent value="continue">
+            <ContinuePanel />
+          </TabsContent>
+          <TabsContent value="rewrite">
+            <RewritePanel />
+          </TabsContent>
+          <TabsContent value="polish">
+            <PolishPanel />
+          </TabsContent>
+          <TabsContent value="dialogue">
+            <DialoguePanel />
+          </TabsContent>
+          <TabsContent value="chat">
+            <ChatPanel />
+          </TabsContent>
+        </div>
+      </Tabs>
 
-      {generatedText && (
+      {finalText && !isStreaming && (
         <div className="flex gap-2 border-t border-border px-4 py-3">
-          <button
-            onClick={() => onInsert(generatedText)}
-            className={cn(
-              "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-              "bg-primary hover:bg-primary/90 active:scale-[0.98]",
-            )}
+          <Button
+            onClick={handleInsert}
+            className="flex-1"
+            data-icon="inline-start"
           >
-            <ArrowDownToLine className="h-3.5 w-3.5" />
-            插入到编辑器
-          </button>
-          <button
+            <ArrowDownToLine />
+            {editorState.hasSelection ? "替换选中" : "插入到编辑器"}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
             onClick={handleCopy}
-            className="flex items-center justify-center rounded-lg border border-border px-3 py-2.5 text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-[0.97]"
           >
             {copied ? (
-              <Check className="h-4 w-4 text-primary" />
+              <Check />
             ) : (
-              <Copy className="h-4 w-4" />
+              <Copy />
             )}
-          </button>
+          </Button>
+        </div>
+      )}
+
+      {isStreaming && (
+        <div className="flex gap-2 border-t border-border px-4 py-3">
+          <Button variant="outline" onClick={stopStreaming} className="flex-1" data-icon="inline-start">
+            <Square className="size-3" />
+            停止生成
+          </Button>
+        </div>
+      )}
+
+      {activeMode === "chat" || activeMode === "dialogue" ? null : isStreaming && (
+        <div className="mx-4 mb-3 rounded-lg border border-border bg-muted/50 p-3 text-sm whitespace-pre-wrap max-h-40 overflow-y-auto">
+          {streamingText}
+          <span className="inline-block size-1.5 ml-0.5 rounded-full bg-primary/50 animate-pulse" />
         </div>
       )}
     </div>

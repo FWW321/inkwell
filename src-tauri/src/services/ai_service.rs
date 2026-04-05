@@ -1,10 +1,24 @@
+use futures_util::StreamExt;
+use rig::agent::MultiTurnStreamItem;
 use rig::client::CompletionClient;
 use rig::completion::Prompt;
+use rig::streaming::StreamedAssistantContent;
+use rig::streaming::StreamingPrompt;
 use rusqlite::{Connection, params};
 use serde::Deserialize;
+use tauri::ipc::Channel;
 
 use crate::db::models::AiConfig;
 use crate::error::{AppError, AppResult};
+use crate::services::context_service;
+
+#[derive(serde::Serialize, Clone)]
+pub struct StreamChunk {
+    pub text: String,
+    pub done: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+}
 
 #[derive(Deserialize)]
 struct ModelsResponse {
@@ -92,6 +106,71 @@ fn build_agent(
         .build();
 
     Ok(agent)
+}
+
+pub async fn stream_ai(
+    config: &AiConfig,
+    preamble: &str,
+    prompt_text: &str,
+    on_chunk: &Channel<StreamChunk>,
+) -> AppResult<()> {
+    let agent = build_agent(config, preamble)?;
+    let request = agent.stream_prompt(prompt_text);
+    let mut stream = request.await;
+
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(MultiTurnStreamItem::StreamAssistantItem(content)) => {
+                match content {
+                    StreamedAssistantContent::Text(text) => {
+                        let _ = on_chunk.send(StreamChunk {
+                            text: text.text,
+                            done: false,
+                            reasoning: None,
+                        });
+                    }
+                    StreamedAssistantContent::Reasoning(reasoning) => {
+                        let display = reasoning.display_text();
+                        if !display.is_empty() {
+                            let _ = on_chunk.send(StreamChunk {
+                                text: String::new(),
+                                done: false,
+                                reasoning: Some(display),
+                            });
+                        }
+                    }
+                    StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
+                        if !reasoning.is_empty() {
+                            let _ = on_chunk.send(StreamChunk {
+                                text: String::new(),
+                                done: false,
+                                reasoning: Some(reasoning),
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(MultiTurnStreamItem::FinalResponse(_)) => {}
+            Err(e) => {
+                let _ = on_chunk.send(StreamChunk {
+                    text: format!("\n\n[错误: {}]", e),
+                    done: true,
+                    reasoning: None,
+                });
+                return Err(AppError::Ai(format!("AI 流式输出错误: {}", e)));
+            }
+            _ => {}
+        }
+    }
+
+    let _ = on_chunk.send(StreamChunk {
+        text: String::new(),
+        done: true,
+        reasoning: None,
+    });
+
+    Ok(())
 }
 
 pub async fn continue_writing(
@@ -190,4 +269,80 @@ pub async fn chat(
         .prompt(message)
         .await
         .map_err(|e| AppError::Ai(format!("AI 请求失败: {}", e)))
+}
+
+pub fn save_chat_message(
+    conn: &Connection,
+    project_id: &str,
+    role: &str,
+    content: &str,
+) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO ai_messages (project_id, role, content) VALUES (?1, ?2, ?3)",
+        params![project_id, role, content],
+    )?;
+    Ok(())
+}
+
+pub fn get_chat_history(conn: &Connection, project_id: &str, limit: usize) -> AppResult<Vec<(String, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT role, content FROM ai_messages WHERE project_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+    )?;
+
+    let rows: Vec<(String, String)> = stmt
+        .query_map(params![project_id, limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows.into_iter().rev().collect())
+}
+
+pub fn clear_chat_history(conn: &Connection, project_id: &str) -> AppResult<()> {
+    conn.execute(
+        "DELETE FROM ai_messages WHERE project_id = ?1",
+        params![project_id],
+    )?;
+    Ok(())
+}
+
+pub async fn ai_stream_with_context(
+    config: &AiConfig,
+    project_id: &str,
+    chapter_id: Option<&str>,
+    mode: &str,
+    user_text: &str,
+    style: Option<&str>,
+    length: Option<&str>,
+    on_chunk: &Channel<StreamChunk>,
+) -> AppResult<()> {
+    let conn = get_connection_for_context(project_id);
+    let ctx = context_service::build_project_context(&conn, project_id, chapter_id)?;
+
+    let mut preamble = context_service::format_system_prompt(&ctx, mode);
+
+    if let Some(s) = style {
+        preamble.push_str(&format!("\n\n用户期望的写作风格：{}。", s));
+    }
+    if let Some(l) = length {
+        let guide = match l {
+            "short" => "100-200字",
+            "medium" => "300-500字",
+            "long" => "600-1000字",
+            _ => "300-500字",
+        };
+        preamble.push_str(&format!("\n\n续写长度约{}。", guide));
+    }
+
+    stream_ai(config, &preamble, user_text, on_chunk).await
+}
+
+fn get_connection_for_context(_project_id: &str) -> Connection {
+    let db_path = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("inkwell")
+        .join("inkwell.db");
+
+    Connection::open(&db_path).expect("Failed to open DB for context")
 }

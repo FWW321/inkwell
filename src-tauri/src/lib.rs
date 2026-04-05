@@ -43,6 +43,8 @@ pub fn run() {
             commands::outline::rename_outline_node,
             commands::outline::delete_outline_node,
             commands::outline::reorder_outline_nodes,
+            commands::outline::save_diff,
+            commands::outline::clear_diff,
             commands::character::list_characters,
             commands::character::get_character,
             commands::character::create_character,
@@ -60,6 +62,9 @@ pub fn run() {
             commands::ai::ai_polish,
             commands::ai::ai_generate_dialogue,
             commands::ai::ai_chat,
+            commands::ai::ai_stream,
+            commands::ai::get_chat_history,
+            commands::ai::clear_chat_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

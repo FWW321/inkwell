@@ -20,6 +20,9 @@ export interface OutlineNode {
   content_json: string;
   word_count: number;
   status: ChapterStatus;
+  diff_original?: string | null;
+  diff_new?: string | null;
+  diff_mode?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -53,4 +56,21 @@ export interface AiConfig {
 export interface AiMessage {
   role: "user" | "assistant" | "system";
   content: string;
+}
+
+export type AiMode = "continue" | "rewrite" | "polish" | "dialogue" | "chat";
+
+export interface StreamChunk {
+  text: string;
+  done: boolean;
+  reasoning?: string;
+}
+
+export interface AiEditorState {
+  selectedText: string;
+  cursorBefore: string;
+  cursorAfter: string;
+  chapterId: string;
+  projectId: string;
+  hasSelection: boolean;
 }

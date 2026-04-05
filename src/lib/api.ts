@@ -1,10 +1,11 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import type {
   Project,
   OutlineNode,
   Character,
   WorldviewEntry,
   AiConfig,
+  StreamChunk,
 } from "./types";
 
 export const projectApi = {
@@ -30,6 +31,10 @@ export const outlineApi = {
   delete: (id: string) => invoke<void>("delete_outline_node", { id }),
   reorder: (projectId: string, parentId: string | null, nodeIds: string[]) =>
     invoke<void>("reorder_outline_nodes", { projectId, parentId, nodeIds }),
+  saveDiff: (id: string, originalText: string, newText: string, mode: string) =>
+    invoke<void>("save_diff", { id, originalText, newText, mode }),
+  clearDiff: (id: string) =>
+    invoke<void>("clear_diff", { id }),
 };
 
 export const characterApi = {
@@ -103,4 +108,25 @@ export const aiApi = {
     invoke<string>("ai_generate_dialogue", { characters, scenario }),
   chat: (projectId: string, contextType: string, contextId: string, message: string) =>
     invoke<string>("ai_chat", { projectId, contextType, contextId, message }),
+  stream: (
+    params: {
+      projectId: string;
+      chapterId?: string | null;
+      mode: string;
+      text: string;
+      style?: string | null;
+      length?: string | null;
+    },
+    onChunk: (chunk: StreamChunk) => void,
+  ): Promise<void> => {
+    const channel = new Channel<StreamChunk>(onChunk);
+    return invoke("ai_stream", {
+      ...params,
+      onChunk: channel,
+    });
+  },
+  getChatHistory: (projectId: string) =>
+    invoke<Array<{ role: string; content: string }>>("get_chat_history", { projectId }),
+  clearChatHistory: (projectId: string) =>
+    invoke<void>("clear_chat_history", { projectId }),
 };

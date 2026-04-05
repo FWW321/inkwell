@@ -10,13 +10,16 @@ import {
   Feather,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import ChapterTree from "@/components/chapter/ChapterTree";
 
 const navItems = [
-  { icon: PenLine, label: "编辑", path: "write" },
-  { icon: Users, label: "角色", path: "characters" },
-  { icon: Globe, label: "世界观", path: "worldview" },
-  { icon: Settings, label: "设置", path: "settings" },
+  { path: "write", label: "写作", icon: PenLine },
+  { path: "characters", label: "角色", icon: Users },
+  { path: "worldview", label: "世界观", icon: Globe },
+  { path: "settings", label: "设置", icon: Settings },
 ];
 
 const ProjectLayout = () => {
@@ -42,50 +45,57 @@ const ProjectLayout = () => {
               to="/"
               className="flex items-center gap-2 text-sm font-semibold text-sidebar-foreground transition-colors hover:text-foreground"
             >
-              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15">
-                <Feather className="h-3.5 w-3.5 text-primary" />
+              <div className="flex size-7 items-center justify-center rounded-md bg-primary/15">
+                <Feather className="size-3.5 text-primary" />
               </div>
               Inkwell
             </Link>
           )}
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-secondary hover:text-foreground",
-              !sidebarOpen && "mx-auto",
-            )}
+            className={cn(!sidebarOpen && "mx-auto")}
           >
             {sidebarOpen ? (
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftClose />
             ) : (
-              <PanelLeft className="h-4 w-4" />
+              <PanelLeft />
             )}
-          </button>
+          </Button>
         </div>
         {sidebarOpen && projectId && (
           <div className="flex-1 overflow-y-auto">
             <ChapterTree projectId={projectId} />
           </div>
         )}
-        <nav className="border-t border-border p-1.5">
+        <Separator />
+        <nav className="p-1.5">
           {navItems.map((item) => {
             const isActive = activeNav?.path === item.path;
             return (
-              <Link
-                key={item.path}
-                to={`/project/${projectId}/${item.path}`}
-                className={cn(
-                  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-all",
-                  !sidebarOpen && "justify-center px-0",
-                  isActive
-                    ? "bg-primary/12 text-primary font-medium"
-                    : "text-sidebar-foreground/70 hover:bg-secondary hover:text-sidebar-foreground",
+              <Tooltip key={item.path}>
+                <TooltipTrigger
+                  render={
+                    <Link
+                      to={`/project/${projectId}/${item.path}`}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-all",
+                        !sidebarOpen && "justify-center px-0",
+                        isActive
+                          ? "bg-primary/12 text-primary font-medium"
+                          : "text-sidebar-foreground/70 hover:bg-secondary hover:text-sidebar-foreground",
+                      )}
+                    />
+                  }
+                >
+                  <item.icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
+                  {sidebarOpen && <span>{item.label}</span>}
+                </TooltipTrigger>
+                {!sidebarOpen && (
+                  <TooltipContent side="right">{item.label}</TooltipContent>
                 )}
-                title={item.label}
-              >
-                <item.icon className={cn("h-4 w-4 shrink-0", isActive && "text-primary")} />
-                {sidebarOpen && <span>{item.label}</span>}
-              </Link>
+              </Tooltip>
             );
           })}
         </nav>

@@ -14,12 +14,15 @@ fn row_to_node(row: &rusqlite::Row) -> rusqlite::Result<OutlineNode> {
         content_json: row.get(6)?,
         word_count: row.get(7)?,
         status: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        diff_original: row.get(9)?,
+        diff_new: row.get(10)?,
+        diff_mode: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
-const SELECT: &str = "SELECT id, project_id, parent_id, node_type, title, sort_order, content_json, word_count, status, created_at, updated_at FROM outline_nodes";
+const SELECT: &str = "SELECT id, project_id, parent_id, node_type, title, sort_order, content_json, word_count, status, diff_original, diff_new, diff_mode, created_at, updated_at FROM outline_nodes";
 
 pub fn list_children(conn: &Connection, project_id: &str, parent_id: Option<&str>) -> AppResult<Vec<OutlineNode>> {
     let mut stmt = if parent_id.is_some() {
@@ -90,6 +93,9 @@ pub fn create_node(
         content_json: "[]".to_string(),
         word_count: 0,
         status: "draft".to_string(),
+        diff_original: None,
+        diff_new: None,
+        diff_mode: None,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -140,5 +146,29 @@ pub fn reorder_nodes(
             params![i as i64, nid, project_id, parent_id],
         )?;
     }
+    Ok(())
+}
+
+pub fn save_diff(
+    conn: &Connection,
+    id: &str,
+    original_text: &str,
+    new_text: &str,
+    mode: &str,
+) -> AppResult<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE outline_nodes SET diff_original = ?1, diff_new = ?2, diff_mode = ?3, updated_at = ?4 WHERE id = ?5",
+        params![original_text, new_text, mode, now, id],
+    )?;
+    Ok(())
+}
+
+pub fn clear_diff(conn: &Connection, id: &str) -> AppResult<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE outline_nodes SET diff_original = NULL, diff_new = NULL, diff_mode = NULL, updated_at = ?1 WHERE id = ?2",
+        params![now, id],
+    )?;
     Ok(())
 }

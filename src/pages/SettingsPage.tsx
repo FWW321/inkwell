@@ -1,8 +1,14 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Key, Cpu, Globe, Save, Check, RefreshCw, ChevronDown, Settings, Zap, ChevronRight } from "lucide-react";
 import { aiApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AiConfig } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
 const ModelCombobox = ({
   value,
@@ -18,17 +24,6 @@ const ModelCombobox = ({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [inputMode, setInputMode] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   const filtered = models.filter((m) =>
     m.toLowerCase().includes(search.toLowerCase()),
@@ -39,96 +34,97 @@ const ModelCombobox = ({
     !models.some((m) => m.toLowerCase() === search.toLowerCase()) &&
     !filtered.some((m) => m === search.trim());
 
+  const selectModel = (m: string) => {
+    onChange(m);
+    setOpen(false);
+    setSearch("");
+  };
+
   return (
-    <div ref={containerRef} className="relative">
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          {inputMode ? (
-            <input
-              type="text"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder="输入自定义模型名称..."
-              className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setOpen(!open)}
-              className="flex w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+    <div className="flex gap-2">
+      <div className="flex-1">
+        {inputMode ? (
+          <Input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="输入自定义模型名称..."
+          />
+        ) : (
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex w-full justify-between font-normal"
+                />
+              }
             >
               <span className={cn(!value && "text-muted-foreground/60")}>
                 {value || "选择模型..."}
               </span>
-              <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
-            </button>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setInputMode(!inputMode)}
-          className="shrink-0 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-[0.97]"
-          title={inputMode ? "从列表选择" : "手动输入"}
-        >
-          {inputMode ? "列表" : "手动"}
-        </button>
-        {loading && (
-          <div className="flex items-center">
-            <RefreshCw className="h-3.5 w-3.5 animate-spin text-primary/60" />
-          </div>
+              <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-180")} />
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className="w-[--anchor-width] p-0"
+            >
+              <div className="border-b border-border p-2.5">
+                <Input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="搜索模型..."
+                  autoFocus
+                />
+              </div>
+              <div className="max-h-48 overflow-y-auto p-1">
+                {filtered.length === 0 && !showCustomOption && (
+                  <div className="px-3 py-3 text-sm text-muted-foreground">
+                    {models.length === 0 ? "点击「获取」拉取模型列表" : "无匹配模型"}
+                  </div>
+                )}
+                {showCustomOption && (
+                  <button
+                    type="button"
+                    onClick={() => selectModel(search.trim())}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-primary transition-colors hover:bg-secondary"
+                  >
+                    <ChevronRight className="size-3.5" />
+                    使用「{search.trim()}」
+                  </button>
+                )}
+                {filtered.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => selectModel(m)}
+                    className={cn(
+                      "flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-secondary",
+                      m === value && "font-medium text-primary",
+                    )}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         )}
       </div>
-
-      {!inputMode && open && (
-        <div className="animate-fade-in absolute z-50 mt-1.5 max-h-64 w-full overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
-          <div className="border-b border-border p-2.5">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索模型..."
-              className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
-              autoFocus
-            />
-          </div>
-          <div className="max-h-48 overflow-y-auto">
-            {filtered.length === 0 && !showCustomOption && (
-              <div className="px-4 py-3 text-sm text-muted-foreground">
-                {models.length === 0 ? "点击「获取」拉取模型列表" : "无匹配模型"}
-              </div>
-            )}
-            {showCustomOption && (
-              <button
-                type="button"
-                onClick={() => {
-                  onChange(search.trim());
-                  setOpen(false);
-                  setSearch("");
-                }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-primary transition-colors hover:bg-secondary"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-                使用「{search.trim()}」
-              </button>
-            )}
-            {filtered.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => {
-                  onChange(m);
-                  setOpen(false);
-                  setSearch("");
-                }}
-                className={cn(
-                  "flex w-full items-center px-4 py-2.5 text-left text-sm transition-colors hover:bg-secondary",
-                  m === value && "font-medium text-primary",
-                )}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setInputMode(!inputMode)}
+        title={inputMode ? "从列表选择" : "手动输入"}
+      >
+        {inputMode ? "列表" : "手动"}
+      </Button>
+      {loading && (
+        <div className="flex items-center">
+          <RefreshCw className="size-3.5 animate-spin text-primary/60" />
         </div>
       )}
     </div>
@@ -200,7 +196,7 @@ const SettingsPage = () => {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <Spinner className="size-5 text-primary" />
           <p className="text-sm text-muted-foreground">加载中...</p>
         </div>
       </div>
@@ -211,8 +207,8 @@ const SettingsPage = () => {
     <div className="flex h-full flex-col">
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15">
-            <Settings className="h-4 w-4 text-primary" />
+          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/15">
+            <Settings className="size-4 text-primary" />
           </div>
           <div>
             <h1 className="text-lg font-semibold text-foreground">设置</h1>
@@ -222,25 +218,26 @@ const SettingsPage = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-2xl space-y-6">
-          <div className="rounded-xl border border-border bg-card p-6">
-            <div className="mb-5 flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12">
-                <Zap className="h-4 w-4 text-primary/80" />
+        <div className="mx-auto max-w-2xl">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-8 items-center justify-center rounded-lg bg-primary/12">
+                  <Zap className="size-4 text-primary/80" />
+                </div>
+                <div>
+                  <CardTitle>AI 配置</CardTitle>
+                  <CardDescription>连接 OpenAI 兼容的 API 服务</CardDescription>
+                </div>
               </div>
-              <div>
-                <h2 className="text-base font-semibold text-foreground">AI 配置</h2>
-                <p className="text-xs text-muted-foreground">连接 OpenAI 兼容的 API 服务</p>
-              </div>
-            </div>
-
-            <div className="space-y-5">
-              <div>
-                <label className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="flex flex-col gap-5">
+              <div className="flex flex-col gap-1.5">
+                <Label data-icon="inline-start">
+                  <Globe />
                   API Base URL
-                </label>
-                <input
+                </Label>
+                <Input
                   type="text"
                   value={config.base_url}
                   onChange={(e) =>
@@ -250,34 +247,32 @@ const SettingsPage = () => {
                     }))
                   }
                   placeholder="https://api.openai.com/v1"
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
                 />
-                <p className="mt-1.5 text-xs text-muted-foreground/70">
+                <p className="text-xs text-muted-foreground/70">
                   支持所有 OpenAI 兼容 API 格式的服务地址
                 </p>
               </div>
 
-              <div>
-                <label className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Key className="h-3.5 w-3.5 text-muted-foreground" />
+              <div className="flex flex-col gap-1.5">
+                <Label data-icon="inline-start">
+                  <Key />
                   API Key
-                </label>
-                <input
+                </Label>
+                <Input
                   type="password"
                   value={config.api_key}
                   onChange={(e) =>
                     setConfig((prev) => ({ ...prev, api_key: e.target.value }))
                   }
                   placeholder="sk-..."
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
                 />
               </div>
 
-              <div>
-                <label className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
+              <div className="flex flex-col gap-1.5">
+                <Label data-icon="inline-start">
+                  <Cpu />
                   模型
-                </label>
+                </Label>
                 <ModelCombobox
                   value={config.model}
                   onChange={(val) =>
@@ -288,30 +283,27 @@ const SettingsPage = () => {
                 />
               </div>
 
-              <div className="pt-2">
-                <button
+              <div className="flex justify-end pt-2">
+                <Button
                   onClick={handleSave}
                   disabled={saving || !config.api_key.trim() || !config.model.trim()}
-                  className={cn(
-                    "flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-                    "bg-primary hover:bg-primary/90 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
-                  )}
+                  data-icon="inline-start"
                 >
                   {saved ? (
                     <>
-                      <Check className="h-4 w-4" />
+                      <Check />
                       已保存
                     </>
                   ) : (
                     <>
-                      <Save className="h-4 w-4" />
+                      <Save />
                       {saving ? "保存中..." : "保存配置"}
                     </>
                   )}
-                </button>
+                </Button>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

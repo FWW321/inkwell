@@ -2,8 +2,15 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, BookOpen, Trash2, MoreHorizontal, Feather } from "lucide-react";
 import { projectApi } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import type { Project } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Spinner } from "@/components/ui/spinner";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardAction } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 const CreateProjectDialog = ({
   open,
@@ -17,8 +24,6 @@ const CreateProjectDialog = ({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
-
-  if (!open) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,58 +43,42 @@ const CreateProjectDialog = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="animate-fade-in w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <h2 className="mb-1 text-lg font-semibold text-foreground">新建项目</h2>
-        <p className="mb-5 text-sm text-muted-foreground">开始你的下一个故事</p>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">
-              项目名称
-            </label>
-            <input
-              type="text"
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>新建项目</DialogTitle>
+          <DialogDescription>开始你的下一个故事</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground">项目名称</label>
+            <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="输入项目名称..."
-              className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
               autoFocus
             />
           </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">
-              简介
-            </label>
-            <textarea
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground">简介</label>
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="简要描述你的故事..."
               rows={3}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary focus:ring-1 focus:ring-primary transition-colors resize-none"
             />
           </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-secondary-foreground"
-            >
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               取消
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !title.trim()}
-              className={cn(
-                "rounded-lg px-5 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-                "bg-primary hover:bg-primary/90 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
-              )}
-            >
+            </Button>
+            <Button type="submit" disabled={loading || !title.trim()}>
               {loading ? "创建中..." : "创建项目"}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 
@@ -101,7 +90,6 @@ const ProjectCard = ({
   onDelete: (id: string) => void;
 }) => {
   const navigate = useNavigate();
-  const [showMenu, setShowMenu] = useState(false);
 
   const formatDate = (dateStr: string) => {
     try {
@@ -117,55 +105,56 @@ const ProjectCard = ({
   };
 
   return (
-    <div
-      className="group relative cursor-pointer rounded-xl border border-border bg-card p-5 transition-all duration-200 hover:border-primary/30 hover:bg-card/80 active:scale-[0.98]"
+    <Card
+      className="cursor-pointer transition-all duration-200 hover:border-primary/30 active:scale-[0.98]"
       onClick={() => navigate(`/project/${project.id}/write`)}
     >
-      <div className="mb-3 flex items-start justify-between">
+      <CardHeader>
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
-            <BookOpen className="h-5 w-5 text-primary" />
+          <div className="flex size-10 items-center justify-center rounded-lg bg-primary/15">
+            <BookOpen className="size-5 text-primary" />
           </div>
-          <div>
-            <h3 className="font-semibold text-foreground">{project.title}</h3>
+          <div className="flex-1 min-w-0">
+            <CardTitle>{project.title}</CardTitle>
             {project.description && (
-              <p className="mt-0.5 line-clamp-1 text-sm text-muted-foreground">
+              <CardDescription className="mt-0.5 line-clamp-1">
                 {project.description}
-              </p>
+              </CardDescription>
             )}
           </div>
         </div>
-        <div className="relative">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowMenu(!showMenu);
-            }}
-            className="rounded-md p-1.5 text-muted-foreground opacity-0 transition-all hover:bg-secondary group-hover:opacity-100"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-          {showMenu && (
-            <div className="animate-fade-in absolute right-0 top-8 z-10 w-32 rounded-lg border border-border bg-card py-1 shadow-xl">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(project.id);
-                  setShowMenu(false);
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                删除项目
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground/70">
-        更新于 {formatDate(project.updated_at)}
-      </p>
-    </div>
+        <CardAction>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" className="opacity-0 group-hover/card:opacity-100" />
+              }
+            >
+              <MoreHorizontal />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    onDelete(project.id);
+                  }}
+                >
+                  <Trash2 />
+                  删除项目
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <p className="text-xs text-muted-foreground/70">
+          更新于 {formatDate(project.updated_at)}
+        </p>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -205,47 +194,43 @@ const ProjectsPage = () => {
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border px-8 py-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15">
-            <Feather className="h-5 w-5 text-primary" />
+          <div className="flex size-9 items-center justify-center rounded-lg bg-primary/15">
+            <Feather className="size-5 text-primary" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground tracking-tight">Inkwell</h1>
             <p className="text-xs text-muted-foreground">AI 驱动的小说创作工具</p>
           </div>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90 active:scale-[0.97]"
-        >
-          <Plus className="h-4 w-4" />
+        <Button onClick={() => setShowCreate(true)}>
+          <Plus data-icon="inline-start" />
           新建项目
-        </button>
+        </Button>
       </header>
       <div className="flex-1 overflow-y-auto px-8 py-6">
         {loading ? (
           <div className="flex h-64 items-center justify-center">
             <div className="flex flex-col items-center gap-3">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <Spinner className="size-6" />
               <p className="text-sm text-muted-foreground">加载中...</p>
             </div>
           </div>
         ) : projects.length === 0 ? (
-          <div className="flex h-[calc(100vh-200px)] flex-col items-center justify-center gap-5">
-            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10">
-              <Feather className="h-10 w-10 text-primary/70" />
-            </div>
-            <div className="text-center">
-              <p className="text-lg font-semibold text-foreground">还没有项目</p>
-              <p className="mt-1 text-sm text-muted-foreground">创建你的第一个小说项目，开始创作之旅</p>
-            </div>
-            <button
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90 active:scale-[0.97]"
-            >
-              <Plus className="h-4 w-4" />
-              新建项目
-            </button>
-          </div>
+          <Empty className="h-[calc(100vh-200px)]">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Feather className="size-10 text-primary/70" />
+              </EmptyMedia>
+              <EmptyTitle className="text-lg">还没有项目</EmptyTitle>
+              <EmptyDescription>创建你的第一个小说项目，开始创作之旅</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button onClick={() => setShowCreate(true)}>
+                <Plus data-icon="inline-start" />
+                新建项目
+              </Button>
+            </EmptyContent>
+          </Empty>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {projects.map((project) => (

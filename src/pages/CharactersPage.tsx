@@ -13,6 +13,14 @@ import {
 import { characterApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Character } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
+import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 const CharacterCard = ({
   character,
@@ -49,21 +57,18 @@ const CharacterCard = ({
   };
 
   return (
-    <div className={cn(
-      "group rounded-xl border border-border bg-card transition-all duration-200",
-      "hover:border-primary/20 hover:bg-card/80",
-    )}>
+    <Card className="transition-all duration-200 hover:ring-primary/20">
       <div
-        className="flex items-center gap-3.5 px-5 py-4 cursor-pointer select-none"
+        className="flex items-center gap-3.5 cursor-pointer select-none"
         onClick={() => !editing && setExpanded(!expanded)}
       >
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/12">
-          <UserRound className="h-5 w-5 text-primary/80" />
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/12">
+          <UserRound className="size-5 text-primary/80" />
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-foreground truncate">
+          <p className="font-semibold text-card-foreground truncate">
             {character.name}
-          </h3>
+          </p>
           {character.description && (
             <p className="mt-0.5 text-sm text-muted-foreground truncate">
               {character.description}
@@ -72,99 +77,78 @@ const CharacterCard = ({
         </div>
         <div className="flex items-center gap-1">
           {expanded && !editing && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={(e) => {
                 e.stopPropagation();
                 setEditing(true);
               }}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-all group-hover:opacity-100 hover:bg-secondary hover:text-foreground"
+              className="opacity-0 group-hover/card:opacity-100"
             >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
+              <Pencil />
+            </Button>
           )}
           {!editing && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={(e) => {
                 e.stopPropagation();
                 setExpanded(!expanded);
               }}
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-all",
-                "hover:bg-secondary hover:text-foreground",
-                expanded && "rotate-180",
-              )}
+              className={cn(expanded && "rotate-180")}
             >
-              <ChevronDown className="h-4 w-4" />
-            </button>
+              <ChevronDown />
+            </Button>
           )}
         </div>
       </div>
 
       {expanded && (
-        <div className="border-t border-border px-5 py-4 space-y-4 animate-fade-in">
+        <CardContent className="flex flex-col gap-4 animate-fade-in border-t">
           {editing ? (
             <>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  姓名
-                </label>
-                <input
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs uppercase tracking-wider">姓名</Label>
+                <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
                 />
               </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  外貌描述
-                </label>
-                <textarea
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs uppercase tracking-wider">外貌描述</Label>
+                <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={2}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary resize-none transition-colors"
                 />
               </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  性格特点
-                </label>
-                <textarea
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs uppercase tracking-wider">性格特点</Label>
+                <Textarea
                   value={personality}
                   onChange={(e) => setPersonality(e.target.value)}
                   rows={2}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary resize-none transition-colors"
                 />
               </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  背景故事
-                </label>
-                <textarea
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs uppercase tracking-wider">背景故事</Label>
+                <Textarea
                   value={background}
                   onChange={(e) => setBackground(e.target.value)}
                   rows={3}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary resize-none transition-colors"
                 />
               </div>
               <div className="flex items-center gap-2 pt-1">
-                <button
-                  onClick={handleSave}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-primary-foreground transition-all",
-                    "bg-primary hover:bg-primary/90 active:scale-[0.97]",
-                  )}
-                >
-                  <Check className="h-3.5 w-3.5" />
+                <Button onClick={handleSave} size="sm" data-icon="inline-start">
+                  <Check />
                   保存
-                </button>
-                <button
-                  onClick={handleCancel}
-                  className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                >
-                  <X className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleCancel} data-icon="inline-start">
+                  <X />
                   取消
-                </button>
+                </Button>
               </div>
             </>
           ) : (
@@ -174,7 +158,7 @@ const CharacterCard = ({
                   <p className="mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     性格特点
                   </p>
-                  <p className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
+                  <p className="text-sm text-card-foreground/90 whitespace-pre-wrap leading-relaxed">
                     {character.personality}
                   </p>
                 </div>
@@ -184,23 +168,26 @@ const CharacterCard = ({
                   <p className="mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     背景故事
                   </p>
-                  <p className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
+                  <p className="text-sm text-card-foreground/90 whitespace-pre-wrap leading-relaxed">
                     {character.background}
                   </p>
                 </div>
               )}
-              <button
+              <Button
+                variant="ghost"
+                size="xs"
                 onClick={onDelete}
-                className="flex items-center gap-1.5 text-xs text-destructive/80 transition-colors hover:text-destructive hover:underline"
+                className="text-destructive/80 hover:text-destructive self-start"
+                data-icon="inline-start"
               >
-                <Trash2 className="h-3 w-3" />
+                <Trash2 />
                 删除角色
-              </button>
+              </Button>
             </>
           )}
-        </div>
+        </CardContent>
       )}
-    </div>
+    </Card>
   );
 };
 
@@ -296,55 +283,45 @@ const CharactersPage = () => {
             创建和管理故事中的角色
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className={cn(
-            "flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-            "bg-primary hover:bg-primary/90 active:scale-[0.97]",
-          )}
-        >
-          <Plus className="h-4 w-4" />
+        <Button onClick={() => setShowCreate(true)} data-icon="inline-start">
+          <Plus />
           新建角色
-        </button>
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
         {loading ? (
           <div className="flex h-32 items-center justify-center">
             <div className="flex flex-col items-center gap-3">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <Spinner className="size-5 text-primary" />
               <p className="text-sm text-muted-foreground">加载中...</p>
             </div>
           </div>
         ) : characters.length === 0 ? (
-          <div className="flex h-[calc(100vh-240px)] flex-col items-center justify-center gap-5">
-            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10">
-              <UserRound className="h-10 w-10 text-primary/60" />
-            </div>
-            <div className="text-center">
-              <p className="text-lg font-semibold text-foreground">还没有角色</p>
-              <p className="mt-1 text-sm text-muted-foreground">创建你的第一个角色</p>
-            </div>
-            <button
-              onClick={() => setShowCreate(true)}
-              className={cn(
-                "flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-                "bg-primary hover:bg-primary/90 active:scale-[0.97]",
-              )}
-            >
-              <Plus className="h-4 w-4" />
-              新建角色
-            </button>
-          </div>
+          <Empty className="h-[calc(100vh-240px)] border-transparent">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <UserRound />
+              </EmptyMedia>
+              <EmptyTitle>还没有角色</EmptyTitle>
+              <EmptyDescription>创建你的第一个角色</EmptyDescription>
+              <EmptyContent>
+                <Button onClick={() => setShowCreate(true)} data-icon="inline-start">
+                  <Plus />
+                  新建角色
+                </Button>
+              </EmptyContent>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <>
             <div className="relative mb-4 max-w-xs">
-              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
-              <input
+              <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+              <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="搜索角色..."
-                className="w-full rounded-lg border border-input bg-background py-2 pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
+                className="pl-9"
               />
             </div>
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -358,56 +335,46 @@ const CharactersPage = () => {
               ))}
             </div>
             {filteredCharacters.length === 0 && search.trim() && (
-              <div className="py-12 text-center text-sm text-muted-foreground">
-                未找到匹配「{search}」的角色
-              </div>
+              <Empty className="py-12 border-transparent">
+                <EmptyHeader>
+                  <EmptyDescription>未找到匹配「{search}」的角色</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             )}
           </>
         )}
       </div>
 
-      {showCreate && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setShowCreate(false)}
-        >
-          <div
-            className="animate-fade-in w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="mb-1 text-lg font-semibold text-foreground">新建角色</h2>
-            <p className="mb-5 text-sm text-muted-foreground">为你的故事添加一个新角色</p>
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="角色姓名"
-              className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate();
-              }}
-            />
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={() => setShowCreate(false)}
-                className="rounded-lg px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-secondary-foreground"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={!newName.trim()}
-                className={cn(
-                  "rounded-lg px-5 py-2.5 text-sm font-medium text-primary-foreground transition-all",
-                  "bg-primary hover:bg-primary/90 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100",
-                )}
-              >
-                创建
-              </button>
+      <Dialog open={showCreate} onOpenChange={(isOpen) => { if (!isOpen) setShowCreate(false); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>新建角色</DialogTitle>
+            <DialogDescription>为你的故事添加一个新角色</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-sm font-medium text-foreground">角色姓名</Label>
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="角色姓名"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                }}
+              />
             </div>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>
+              取消
+            </Button>
+            <Button onClick={handleCreate} disabled={!newName.trim()}>
+              创建
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

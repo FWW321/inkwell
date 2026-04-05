@@ -12,6 +12,11 @@ import {
 import { outlineApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { OutlineNode } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 
 interface ChapterTreeProps {
   projectId: string;
@@ -25,7 +30,6 @@ const ChapterTree = ({ projectId }: ChapterTreeProps) => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -145,8 +149,9 @@ const ChapterTree = ({ projectId }: ChapterTreeProps) => {
 
   if (loading) {
     return (
-      <div className="p-3">
-        <div className="h-4 w-16 animate-pulse-subtle rounded bg-muted" />
+      <div className="p-3 flex flex-col gap-2">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-3 w-24" />
       </div>
     );
   }
@@ -158,7 +163,7 @@ const ChapterTree = ({ projectId }: ChapterTreeProps) => {
     const isActive = chapterId === node.id;
 
     return (
-      <div key={node.id}>
+      <Collapsible key={node.id} open={isVolume ? expanded : false} onOpenChange={() => isVolume && toggleExpand(node.id)}>
         <div
           className={cn(
             "group flex items-center gap-1 rounded-lg px-2 py-1.5 text-[13px] transition-all cursor-pointer",
@@ -192,7 +197,7 @@ const ChapterTree = ({ projectId }: ChapterTreeProps) => {
             )} />
           )}
           {editingId === node.id ? (
-            <input
+            <Input
               value={editingTitle}
               onChange={(e) => setEditingTitle(e.target.value)}
               onBlur={() => finishEditing(node.id, parentId)}
@@ -200,7 +205,7 @@ const ChapterTree = ({ projectId }: ChapterTreeProps) => {
                 if (e.key === "Enter") finishEditing(node.id, parentId);
                 if (e.key === "Escape") setEditingId(null);
               }}
-              className="flex-1 bg-transparent text-sm outline-none min-w-0"
+              className="flex-1 h-6 min-w-0 text-sm"
               autoFocus
               onClick={(e) => e.stopPropagation()}
             />
@@ -209,56 +214,50 @@ const ChapterTree = ({ projectId }: ChapterTreeProps) => {
           )}
           <div className="relative flex items-center opacity-0 transition-opacity group-hover:opacity-100">
             {isVolume && (
-              <button
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleAddChapter(node.id);
                 }}
-                className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                title="添加章节"
               >
-                <Plus className="h-3 w-3" />
-              </button>
+                <Plus />
+              </Button>
             )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpenId(menuOpenId === node.id ? null : node.id);
-              }}
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <MoreHorizontal className="h-3 w-3" />
-            </button>
-            {menuOpenId === node.id && (
-              <div className="animate-fade-in absolute right-0 top-7 z-20 w-28 rounded-lg border border-border bg-card py-1 shadow-xl">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingId(node.id);
-                    setEditingTitle(node.title);
-                    setMenuOpenId(null);
-                  }}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs transition-colors hover:bg-secondary"
-                >
-                  <Pencil className="h-3 w-3" />
-                  重命名
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(node.id, parentId);
-                    setMenuOpenId(null);
-                  }}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/10"
-                >
-                  <Trash2 className="h-3 w-3" />
-                  删除
-                </button>
-              </div>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={(props) => (
+                  <Button variant="ghost" size="icon-xs" {...props}>
+                    <MoreHorizontal />
+                  </Button>
+                )}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <DropdownMenuContent align="end" side="right">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setEditingId(node.id);
+                      setEditingTitle(node.title);
+                    }}
+                  >
+                    <Pencil className="size-3" />
+                    重命名
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => handleDelete(node.id, parentId)}
+                  >
+                    <Trash2 className="size-3" />
+                    删除
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
-        {isVolume && expanded && (
+        <CollapsibleContent>
           <div>
             {children.map((child) => renderNode(child, node.id, depth + 1))}
             {children.length === 0 && (
@@ -270,8 +269,8 @@ const ChapterTree = ({ projectId }: ChapterTreeProps) => {
               </p>
             )}
           </div>
-        )}
-      </div>
+        </CollapsibleContent>
+      </Collapsible>
     );
   };
 
@@ -282,20 +281,22 @@ const ChapterTree = ({ projectId }: ChapterTreeProps) => {
       </p>
       {nodes.map((node) => renderNode(node, null))}
       <div className="mt-1 flex gap-1 px-1">
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={() => handleAddChapter(null)}
-          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] text-muted-foreground/70 transition-all hover:bg-secondary hover:text-muted-foreground"
         >
-          <Plus className="h-3 w-3" />
+          <Plus data-icon="inline-start" />
           章节目录
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={handleAddVolume}
-          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] text-muted-foreground/70 transition-all hover:bg-secondary hover:text-muted-foreground"
         >
-          <Plus className="h-3 w-3" />
+          <Plus data-icon="inline-start" />
           添加卷
-        </button>
+        </Button>
       </div>
     </div>
   );

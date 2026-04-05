@@ -80,3 +80,21 @@ pub fn reorder_outline_nodes(
     let conn = get_conn!(state);
     outline_service::reorder_nodes(&conn, &project_id, parent_id.as_deref(), &node_ids)
 }
+
+#[tauri::command]
+pub fn save_diff(
+    state: State<AppState>,
+    id: String,
+    original_text: String,
+    new_text: String,
+    mode: String,
+) -> AppResult<()> {
+    let conn = get_conn!(state);
+    outline_service::save_diff(&conn, &id, &original_text, &new_text, &mode)
+}
+
+#[tauri::command]
+pub fn clear_diff(state: State<AppState>, id: String) -> AppResult<()> {
+    let conn = get_conn!(state);
+    outline_service::clear_diff(&conn, &id)
+}

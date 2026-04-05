@@ -55,7 +55,28 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
         );
 
         INSERT OR IGNORE INTO ai_config (id) VALUES (1);
+
+        CREATE TABLE IF NOT EXISTS ai_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         ",
     )?;
+
+    let has_diff_cols: bool = conn
+        .prepare("SELECT diff_original FROM outline_nodes LIMIT 0")
+        .is_ok();
+
+    if !has_diff_cols {
+        conn.execute_batch(
+            "ALTER TABLE outline_nodes ADD COLUMN diff_original TEXT;
+             ALTER TABLE outline_nodes ADD COLUMN diff_new TEXT;
+             ALTER TABLE outline_nodes ADD COLUMN diff_mode TEXT;",
+        )?;
+    }
+
     Ok(())
 }

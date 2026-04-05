@@ -4,6 +4,7 @@ target/
 
 # Build output
 dist/
+tsconfig.tsbuildinfo
 
 # IDE
 .idea/
@@ -18,3 +19,6 @@ Thumbs.db
 # Nix
 .direnv/
 result
+
+# Screenshots
+screenshot_*.png

@@ -20,5 +20,6 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 rig-core = "0.33"
 reqwest = { version = "0.13", features = ["json"] }
+futures-util = "0.3"
 tauri-plugin-mcp-bridge = "0.10"
 dirs = "6"

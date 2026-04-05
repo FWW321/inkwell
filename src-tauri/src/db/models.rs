@@ -21,6 +21,12 @@ pub struct OutlineNode {
     pub content_json: String,
     pub word_count: i64,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff_original: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff_new: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff_mode: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
