@@ -22,3 +22,6 @@ result
 
 # Screenshots
 screenshot_*.png
+
+# Agent config
+AGENTS.md
