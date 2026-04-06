@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Outlet, useParams, Link, useLocation, useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "motion/react";
 import {
   PanelLeftClose,
   PanelLeft,
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import ChapterTree from "@/components/chapter/ChapterTree";
 import { projectApi } from "@/lib/api";
+import { springs } from "@/lib/motion";
 
 const navItems = [
   { path: "write", label: "写作", icon: PenLine },
@@ -42,6 +44,8 @@ const ProjectLayout = () => {
   const activeNav = navItems.find((item) =>
     pathname.includes(`/project/${projectId}/${item.path}`),
   );
+
+  const showSidebar = sidebarOpen && activeNav?.path === "write";
 
   useEffect(() => {
     if (!projectId) return;
@@ -152,43 +156,54 @@ const ProjectLayout = () => {
           <TooltipContent side="right">设置</TooltipContent>
         </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-              >
-                {sidebarOpen ? <PanelLeftClose className="size-3.5" /> : <PanelLeft className="size-3.5" />}
-              </Button>
-            }
-          />
-          <TooltipContent side="right">{sidebarOpen ? "收起侧栏" : "展开侧栏"}</TooltipContent>
-        </Tooltip>
+        {activeNav?.path === "write" && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                  className="text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                >
+                  {sidebarOpen ? <PanelLeftClose className="size-3.5" /> : <PanelLeft className="size-3.5" />}
+                </Button>
+              }
+            />
+            <TooltipContent side="right">{sidebarOpen ? "收起侧栏" : "展开侧栏"}</TooltipContent>
+          </Tooltip>
+        )}
       </aside>
 
-      {sidebarOpen && activeNav?.path === "write" && (
-        <>
-          <aside
-            className="flex h-full shrink-0 flex-col border-r border-border bg-background transition-none"
-            style={{ width: sidebarWidth }}
-          >
-            <div className="flex items-center gap-2 px-4 h-9 shrink-0 border-b border-border">
-              <BookOpen className="size-3.5 text-primary/50 shrink-0" />
-              <span className="text-xs font-medium text-foreground/80 truncate">{projectName}</span>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {projectId && <ChapterTree projectId={projectId} />}
-            </div>
-          </aside>
-          <div
-            className="w-px shrink-0 cursor-col-resize bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors"
-            onMouseDown={handleMouseDown}
-          />
-        </>
-      )}
+      <AnimatePresence initial={false}>
+        {showSidebar && (
+          <>
+            <motion.aside
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: sidebarWidth, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={springs.smooth}
+              className="flex h-full shrink-0 flex-col overflow-hidden border-r border-border bg-background"
+            >
+              <div className="flex items-center gap-2 px-4 h-9 shrink-0 border-b border-border">
+                <BookOpen className="size-3.5 text-primary/50 shrink-0" />
+                <span className="text-xs font-medium text-foreground/80 truncate">{projectName}</span>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {projectId && <ChapterTree projectId={projectId} />}
+              </div>
+            </motion.aside>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="w-px shrink-0 cursor-col-resize bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors"
+              onMouseDown={handleMouseDown}
+            />
+          </>
+        )}
+      </AnimatePresence>
 
       <main className="flex-1 overflow-hidden bg-background flex flex-col">
         {projectName && activeNav?.path !== "write" && (
@@ -197,9 +212,18 @@ const ProjectLayout = () => {
             <span className="text-xs text-muted-foreground/60 truncate">{projectName}</span>
           </div>
         )}
-        <div className="flex-1 overflow-hidden">
-          <Outlet />
-        </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={pathname}
+            className="flex-1 overflow-hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
+          >
+            <Outlet />
+          </motion.div>
+        </AnimatePresence>
       </main>
     </div>
   );

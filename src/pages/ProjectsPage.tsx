@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { Plus, BookOpen, Trash2, MoreHorizontal, Feather, Settings } from "lucide-react";
 import { projectApi } from "@/lib/api";
@@ -13,6 +14,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { springs } from "@/lib/motion";
 
 const languages = [
   { value: "zh", label: "中文" },
@@ -197,10 +199,15 @@ const ProjectCard = ({
   const displayTitle = project.title.length > 6 ? project.title.slice(0, 6) + "…" : project.title;
 
   return (
-    <div className="group/card flex flex-col cursor-pointer" onClick={() => navigate(`/project/${project.id}/write`)}>
+    <motion.div
+      className="group/card flex flex-col cursor-pointer"
+      onClick={() => navigate(`/project/${project.id}/write`)}
+      whileHover={{ y: -2 }}
+      transition={springs.snappy}
+    >
       <div className={cn(
-        "relative aspect-[3/4] rounded-lg overflow-hidden transition-all duration-200",
-        "hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5 active:scale-[0.98]",
+        "relative aspect-[3/4] rounded-lg overflow-hidden",
+        "shadow-sm hover:shadow-lg hover:shadow-primary/5",
       )}>
         <div className={cn("absolute inset-0 bg-gradient-to-br", cover.gradient)} />
         <div className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r" style={{
@@ -274,7 +281,7 @@ const ProjectCard = ({
           </p>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 };
 

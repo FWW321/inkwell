@@ -2,8 +2,6 @@ import { defineConfig } from "vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import babel from "@rolldown/plugin-babel";
-import path from "path";
-
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
@@ -14,7 +12,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "src"),
+      "@": new URL("./src", import.meta.url).pathname,
     },
   },
   clearScreen: false,

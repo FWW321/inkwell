@@ -144,41 +144,13 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes fade-in-subtle {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slide-in-right {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
-}
-
-@keyframes slide-out-right {
-  from { transform: translateX(0); }
-  to { transform: translateX(100%); }
-}
-
 @keyframes pulse-subtle {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
 
-@keyframes width-collapse {
-  from { width: 0; opacity: 0; }
-  to { width: var(--panel-width); opacity: 1; }
-}
-
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
-}
-
-.animate-fade-in-subtle {
-  animation: fade-in-subtle 0.15s ease-out;
-}
-
-.animate-slide-in-right {
-  animation: slide-in-right 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .animate-pulse-subtle {
@@ -340,6 +312,7 @@ body {
 
 .inline-diff-original {
   border-radius: 2px;
+  transition: background-color 0.3s ease, opacity 0.3s ease, text-decoration-color 0.3s ease;
 }
 
 .inline-diff-streaming {
@@ -362,6 +335,7 @@ body {
   word-break: break-word;
   font-weight: 500;
   position: relative;
+  transition: opacity 0.2s ease;
 }
 
 .inline-diff-new::before {

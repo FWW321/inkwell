@@ -83,6 +83,19 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
         ",
     )?;
 
+    let has_project_new_cols: bool = conn
+        .prepare("SELECT author FROM projects LIMIT 0")
+        .is_ok();
+
+    if !has_project_new_cols {
+        conn.execute_batch(
+            "ALTER TABLE projects ADD COLUMN author TEXT NOT NULL DEFAULT '';
+             ALTER TABLE projects ADD COLUMN language TEXT NOT NULL DEFAULT '';
+             ALTER TABLE projects ADD COLUMN tags TEXT NOT NULL DEFAULT '';
+             ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'ongoing';",
+        )?;
+    }
+
     let has_diff_cols: bool = conn
         .prepare("SELECT diff_original FROM outline_nodes LIMIT 0")
         .is_ok();
@@ -92,6 +105,24 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
             "ALTER TABLE outline_nodes ADD COLUMN diff_original TEXT;
              ALTER TABLE outline_nodes ADD COLUMN diff_new TEXT;
              ALTER TABLE outline_nodes ADD COLUMN diff_mode TEXT;",
+        )?;
+    }
+
+    let has_ai_agents: bool = conn
+        .prepare("SELECT id FROM ai_agents LIMIT 0")
+        .is_ok();
+
+    if !has_ai_agents {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS ai_agents (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                model_id TEXT NOT NULL REFERENCES ai_models(id) ON DELETE CASCADE,
+                system_prompt TEXT NOT NULL DEFAULT '',
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(name)
+            );",
         )?;
     }
 

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { motion } from "motion/react";
 import {
   Sparkles,
   PenLine,
@@ -21,6 +22,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Empty, EmptyHeader, EmptyMedia, EmptyDescription } from "@/components/ui/empty";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAiEditor } from "@/contexts/AiEditorContext";
+import { springs } from "@/lib/motion";
 import type { AiMode } from "@/lib/types";
 
 interface AiPanelProps {
@@ -352,23 +354,31 @@ const ChatPanel = () => {
           </Empty>
         )}
         {messages.map((msg, i) => (
-          <div
+          <motion.div
             key={i}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={springs.snappy}
             className={cn(
-              "rounded-xl px-3.5 py-2.5 text-sm leading-relaxed animate-fade-in",
+              "rounded-xl px-3.5 py-2.5 text-sm leading-relaxed",
               msg.role === "user"
                 ? "bg-primary/12 text-foreground ml-6"
                 : "bg-muted/60 text-foreground mr-2",
             )}
           >
             {msg.content}
-          </div>
+          </motion.div>
         ))}
         {isStreaming && streamingText && (
-          <div className="mr-2 rounded-xl bg-muted/60 px-3.5 py-2.5 text-sm leading-relaxed animate-fade-in">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.15 }}
+            className="mr-2 rounded-xl bg-muted/60 px-3.5 py-2.5 text-sm leading-relaxed"
+          >
             {streamingText}
             <span className="inline-block size-1.5 ml-0.5 rounded-full bg-primary/50 animate-pulse" />
-          </div>
+          </motion.div>
         )}
         {isStreaming && !streamingText && (
           <div className="mr-2 flex items-center gap-2 rounded-xl bg-muted/60 px-3.5 py-2.5 text-sm text-muted-foreground">
@@ -404,13 +414,17 @@ const ChatPanel = () => {
   );
 };
 
-const AiPanel = ({ open, onClose }: AiPanelProps) => {
+const AiPanel = ({ open: _open, onClose }: AiPanelProps) => {
   const { activeMode, setActiveMode, isStreaming } = useAiEditor();
 
-  if (!open) return null;
-
   return (
-    <div className="flex h-full w-[360px] shrink-0 flex-col border-l border-border bg-background animate-slide-in-right">
+    <motion.div
+      initial={{ x: "100%", opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: "100%", opacity: 0 }}
+      transition={springs.smooth}
+      className="flex h-full w-[360px] shrink-0 flex-col border-l border-border bg-background overflow-hidden"
+    >
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
         <span className="text-xs font-medium text-foreground">AI 助手</span>
         <div className="flex items-center gap-1.5">
@@ -453,7 +467,7 @@ const AiPanel = ({ open, onClose }: AiPanelProps) => {
           <TabsContent value="chat"><ChatPanel /></TabsContent>
         </div>
       </Tabs>
-    </div>
+    </motion.div>
   );
 };
 

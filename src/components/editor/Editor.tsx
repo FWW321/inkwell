@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { AnimatePresence } from "motion/react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
@@ -642,10 +643,14 @@ const Editor = ({ chapterId }: EditorProps) => {
           </div>
         </div>
 
-        <AiPanel
-          open={aiPanelOpen}
-          onClose={() => setAiPanelOpen(false)}
-        />
+        <AnimatePresence>
+          {aiPanelOpen && (
+            <AiPanel
+              open={aiPanelOpen}
+              onClose={() => setAiPanelOpen(false)}
+            />
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
