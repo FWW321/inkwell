@@ -1,76 +1,99 @@
-use crate::db::models::Character;
+use crate::db::models::{Character, CharacterWithModelName};
 use crate::error::{AppError, AppResult};
-use rusqlite::{Connection, params};
-use uuid::Uuid;
+use crate::state::Db;
+use surrealdb::types::RecordId;
 
-pub fn list(conn: &Connection, project_id: &str) -> AppResult<Vec<Character>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, project_id, name, avatar_url, description, personality, background, created_at FROM characters WHERE project_id = ?1 ORDER BY name"
-    )?;
-    let characters = stmt
-        .query_map(params![project_id], |row| {
-            Ok(Character {
-                id: row.get(0)?,
-                project_id: row.get(1)?,
-                name: row.get(2)?,
-                avatar_url: row.get(3)?,
-                description: row.get(4)?,
-                personality: row.get(5)?,
-                background: row.get(6)?,
-                created_at: row.get(7)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(characters)
+pub async fn list(db: &Db, project_id: &str) -> AppResult<Vec<CharacterWithModelName>> {
+    db.query("SELECT *, model.name AS model_name FROM character WHERE project = $pid ORDER BY name")
+        .bind(("pid", RecordId::new("project", project_id)))
+        .await?.take::<Vec<CharacterWithModelName>>(0).map_err(Into::into)
 }
 
-pub fn get(conn: &Connection, id: &str) -> AppResult<Character> {
-    conn.query_row(
-        "SELECT id, project_id, name, avatar_url, description, personality, background, created_at FROM characters WHERE id = ?1",
-        params![id],
-        |row| Ok(Character {
-            id: row.get(0)?, project_id: row.get(1)?, name: row.get(2)?,
-            avatar_url: row.get(3)?, description: row.get(4)?,
-            personality: row.get(5)?, background: row.get(6)?, created_at: row.get(7)?,
-        }),
-    ).map_err(|_| AppError::NotFound(format!("Character {} not found", id)))
+pub async fn get(db: &Db, id: &str) -> AppResult<CharacterWithModelName> {
+    db.query("SELECT *, model.name AS model_name FROM character WHERE id = $id")
+        .bind(("id", RecordId::new("character", id)))
+        .await?.take::<Option<CharacterWithModelName>>(0)?
+        .ok_or_else(|| AppError::NotFound(format!("Character {} not found", id)))
 }
 
-pub fn create(
-    conn: &Connection,
+pub async fn create(
+    db: &Db,
     project_id: &str,
     name: &str,
     description: &str,
     personality: &str,
     background: &str,
+    race: &str,
+    model_id: Option<&str>,
 ) -> AppResult<Character> {
-    let id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "INSERT INTO characters (id, project_id, name, description, personality, background, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![id, project_id, name, description, personality, background, now],
-    )?;
-    get(conn, &id)
+    let has_model = model_id.is_some();
+
+    let mut q = db.query(
+        "CREATE character CONTENT { \
+         project: type::record('project', $pid), \
+         name: $name, \
+         description: $description, \
+         personality: $personality, \
+         background: $background, \
+         race: $race, \
+         model: if $has_model { type::record('ai_model', $mid) } else { NONE } \
+         }"
+    )
+    .bind(("pid", project_id.to_string()))
+    .bind(("name", name.to_string()))
+    .bind(("description", description.to_string()))
+    .bind(("personality", personality.to_string()))
+    .bind(("background", background.to_string()))
+    .bind(("race", race.to_string()))
+    .bind(("has_model", has_model));
+    if let Some(mid) = model_id {
+        q = q.bind(("mid", mid.to_string()));
+    }
+
+    q.await?.take::<Option<Character>>(0)?
+        .ok_or_else(|| AppError::Internal("create character failed".into()))
 }
 
-pub fn update(
-    conn: &Connection,
+pub async fn update(
+    db: &Db,
     id: &str,
     name: &str,
     description: &str,
     personality: &str,
     background: &str,
+    race: &str,
+    model_id: Option<&str>,
 ) -> AppResult<Character> {
-    conn.execute(
-        "UPDATE characters SET name = ?1, description = ?2, personality = ?3, background = ?4 WHERE id = ?5",
-        params![name, description, personality, background, id],
-    )?;
-    get(conn, id)
+    let has_model = model_id.is_some();
+
+    let mut q = db.query(
+        "UPDATE type::record($id) MERGE { \
+         name: $name, \
+         description: $description, \
+         personality: $personality, \
+         background: $background, \
+         race: $race, \
+         model: if $has_model { type::record('ai_model', $mid) } else { NONE } \
+         }"
+    )
+    .bind(("id", RecordId::new("character", id)))
+    .bind(("name", name.to_string()))
+    .bind(("description", description.to_string()))
+    .bind(("personality", personality.to_string()))
+    .bind(("background", background.to_string()))
+    .bind(("race", race.to_string()))
+    .bind(("has_model", has_model));
+    if let Some(mid) = model_id {
+        q = q.bind(("mid", mid.to_string()));
+    }
+
+    q.await?.take::<Option<Character>>(0)?
+        .ok_or_else(|| AppError::NotFound(format!("Character {} not found", id)))
 }
 
-pub fn delete(conn: &Connection, id: &str) -> AppResult<()> {
-    let rows = conn.execute("DELETE FROM characters WHERE id = ?1", params![id])?;
-    if rows == 0 {
+pub async fn delete(db: &Db, id: &str) -> AppResult<()> {
+    let deleted: Option<Character> = db.delete(("character", id)).await?;
+    if deleted.is_none() {
         return Err(AppError::NotFound(format!("Character {} not found", id)));
     }
     Ok(())

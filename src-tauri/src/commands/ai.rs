@@ -1,112 +1,83 @@
 use tauri::ipc::Channel;
 use tauri::State;
 
-use crate::db::models::{AiAgent, AiConfig};
+use crate::db::models::{AiAgentWithModelName, AiConfig};
 use crate::error::AppResult;
 use crate::services::ai_service::{self, StreamChunk};
 use crate::state::AppState;
 
-macro_rules! get_config_from_state {
-    ($state:expr) => {{
-        let conn = $state
-            .db
-            .lock()
-            .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-        ai_service::get_default_config(&conn)?
-    }};
-}
-
-macro_rules! get_conn {
-    ($state:expr) => {{
-        $state
-            .db
-            .lock()
-            .map_err(|e| crate::error::AppError::Internal(e.to_string()))?
-    }};
+#[tauri::command]
+pub async fn list_ai_models(state: State<'_, AppState>) -> AppResult<Vec<AiConfig>> {
+    ai_service::list_models(&state.db).await
 }
 
 #[tauri::command]
-pub fn list_ai_models(state: State<AppState>) -> AppResult<Vec<AiConfig>> {
-    let conn = get_conn!(state);
-    ai_service::list_models(&conn)
-}
-
-#[tauri::command]
-pub fn create_ai_model(
-    state: State<AppState>,
+pub async fn create_ai_model(
+    state: State<'_, AppState>,
     name: String,
     api_key: String,
     model: String,
     base_url: String,
 ) -> AppResult<AiConfig> {
-    let conn = get_conn!(state);
-    ai_service::create_model(&conn, &name, &api_key, &model, &base_url)
+    ai_service::create_model(&state.db, &name, &api_key, &model, &base_url).await
 }
 
 #[tauri::command]
-pub fn update_ai_model(
-    state: State<AppState>,
+pub async fn update_ai_model(
+    state: State<'_, AppState>,
     id: String,
     name: String,
     api_key: String,
     model: String,
     base_url: String,
 ) -> AppResult<AiConfig> {
-    let conn = get_conn!(state);
-    ai_service::update_model(&conn, &id, &name, &api_key, &model, &base_url)
+    ai_service::update_model(&state.db, &id, &name, &api_key, &model, &base_url).await
 }
 
 #[tauri::command]
-pub fn delete_ai_model(state: State<AppState>, id: String) -> AppResult<()> {
-    let conn = get_conn!(state);
-    ai_service::delete_model(&conn, &id)
+pub async fn delete_ai_model(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    ai_service::delete_model(&state.db, &id).await
 }
 
 #[tauri::command]
-pub fn set_default_ai_model(state: State<AppState>, id: String) -> AppResult<()> {
-    let conn = get_conn!(state);
-    ai_service::set_default_model(&conn, &id)
+pub async fn set_default_ai_model(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    ai_service::set_default_model(&state.db, &id).await
 }
 
 #[tauri::command]
-pub fn list_ai_agents(state: State<AppState>) -> AppResult<Vec<AiAgent>> {
-    let conn = get_conn!(state);
-    ai_service::list_agents(&conn)
+pub async fn list_ai_agents(state: State<'_, AppState>) -> AppResult<Vec<AiAgentWithModelName>> {
+    ai_service::list_agents(&state.db).await
 }
 
 #[tauri::command]
-pub fn create_ai_agent(
-    state: State<AppState>,
+pub async fn create_ai_agent(
+    state: State<'_, AppState>,
     name: String,
     model_id: String,
     system_prompt: String,
-) -> AppResult<AiAgent> {
-    let conn = get_conn!(state);
-    ai_service::create_agent(&conn, &name, &model_id, &system_prompt)
+) -> AppResult<AiAgentWithModelName> {
+    ai_service::create_agent(&state.db, &name, &model_id, &system_prompt).await
 }
 
 #[tauri::command]
-pub fn update_ai_agent(
-    state: State<AppState>,
+pub async fn update_ai_agent(
+    state: State<'_, AppState>,
     id: String,
     name: String,
     model_id: String,
     system_prompt: String,
-) -> AppResult<AiAgent> {
-    let conn = get_conn!(state);
-    ai_service::update_agent(&conn, &id, &name, &model_id, &system_prompt)
+) -> AppResult<AiAgentWithModelName> {
+    ai_service::update_agent(&state.db, &id, &name, &model_id, &system_prompt).await
 }
 
 #[tauri::command]
-pub fn delete_ai_agent(state: State<AppState>, id: String) -> AppResult<()> {
-    let conn = get_conn!(state);
-    ai_service::delete_agent(&conn, &id)
+pub async fn delete_ai_agent(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    ai_service::delete_agent(&state.db, &id).await
 }
 
 #[tauri::command]
-pub fn set_default_ai_agent(state: State<AppState>, id: String) -> AppResult<()> {
-    let conn = get_conn!(state);
-    ai_service::set_default_agent(&conn, &id)
+pub async fn set_default_ai_agent(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    ai_service::set_default_agent(&state.db, &id).await
 }
 
 #[tauri::command]
@@ -118,16 +89,14 @@ pub async fn list_models(
     let key = match api_key {
         Some(k) if !k.is_empty() => k,
         _ => {
-            let conn = get_conn!(state);
-            let cfg = ai_service::get_default_config(&conn)?;
+            let cfg = ai_service::get_default_config(&state.db).await?;
             cfg.api_key
         }
     };
     let url = match base_url {
         Some(u) if !u.is_empty() => u,
         _ => {
-            let conn = get_conn!(state);
-            let cfg = ai_service::get_default_config(&conn)?;
+            let cfg = ai_service::get_default_config(&state.db).await?;
             cfg.base_url
         }
     };
@@ -141,7 +110,7 @@ pub async fn ai_continue_writing(
     style: String,
     length: String,
 ) -> AppResult<String> {
-    let config = get_config_from_state!(state);
+    let config = ai_service::get_default_config(&state.db).await?;
     ai_service::continue_writing(&config, &context, &style, &length).await
 }
 
@@ -151,13 +120,13 @@ pub async fn ai_rewrite(
     selected_text: String,
     instruction: String,
 ) -> AppResult<String> {
-    let config = get_config_from_state!(state);
+    let config = ai_service::get_default_config(&state.db).await?;
     ai_service::rewrite(&config, &selected_text, &instruction).await
 }
 
 #[tauri::command]
 pub async fn ai_polish(state: State<'_, AppState>, selected_text: String) -> AppResult<String> {
-    let config = get_config_from_state!(state);
+    let config = ai_service::get_default_config(&state.db).await?;
     ai_service::polish(&config, &selected_text).await
 }
 
@@ -167,7 +136,7 @@ pub async fn ai_generate_dialogue(
     characters: String,
     scenario: String,
 ) -> AppResult<String> {
-    let config = get_config_from_state!(state);
+    let config = ai_service::get_default_config(&state.db).await?;
     ai_service::generate_dialogue(&config, &characters, &scenario).await
 }
 
@@ -179,7 +148,7 @@ pub async fn ai_chat(
     context_id: String,
     message: String,
 ) -> AppResult<String> {
-    let config = get_config_from_state!(state);
+    let config = ai_service::get_default_config(&state.db).await?;
     ai_service::chat(&config, &project_id, &context_type, &context_id, &message).await
 }
 
@@ -194,14 +163,14 @@ pub async fn ai_stream(
     length: Option<String>,
     on_chunk: Channel<StreamChunk>,
 ) -> AppResult<()> {
-    let config = get_config_from_state!(state);
+    let config = ai_service::get_default_config(&state.db).await?;
 
     if mode == "chat" {
-        let conn = get_conn!(state);
-        ai_service::save_chat_message(&conn, &project_id, "user", &text)?;
+        ai_service::save_chat_message(&state.db, &project_id, "user", &text).await?;
     }
 
     ai_service::ai_stream_with_context(
+        &state.db,
         &config,
         &project_id,
         chapter_id.as_deref(),
@@ -215,12 +184,11 @@ pub async fn ai_stream(
 }
 
 #[tauri::command]
-pub fn get_chat_history(
-    state: State<AppState>,
+pub async fn get_chat_history(
+    state: State<'_, AppState>,
     project_id: String,
 ) -> AppResult<Vec<ChatMessage>> {
-    let conn = get_conn!(state);
-    let rows = ai_service::get_chat_history(&conn, &project_id, 50)?;
+    let rows = ai_service::get_chat_history(&state.db, &project_id, 50).await?;
     Ok(rows
         .into_iter()
         .map(|(role, content)| ChatMessage { role, content })
@@ -228,12 +196,11 @@ pub fn get_chat_history(
 }
 
 #[tauri::command]
-pub fn clear_chat_history(
-    state: State<AppState>,
+pub async fn clear_chat_history(
+    state: State<'_, AppState>,
     project_id: String,
 ) -> AppResult<()> {
-    let conn = get_conn!(state);
-    ai_service::clear_chat_history(&conn, &project_id)
+    ai_service::clear_chat_history(&state.db, &project_id).await
 }
 
 #[derive(serde::Serialize)]

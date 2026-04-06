@@ -242,9 +242,9 @@ const Editor = ({ chapterId }: EditorProps) => {
         setProjectInfo(n.project_id, n.id);
         setSelProjectInfo(n.project_id, n.id);
 
-        if (n.content_json) {
+        if (n.content_json && Object.keys(n.content_json).length > 0) {
           try {
-            editor.commands.setContent(JSON.parse(n.content_json));
+            editor.commands.setContent(n.content_json);
           } catch {
           }
         }

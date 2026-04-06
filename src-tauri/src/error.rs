@@ -1,9 +1,10 @@
 use serde::Serialize;
+use surrealdb::Error as SurrealError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("Database error: {0}")]
-    Database(#[from] rusqlite::Error),
+    Database(#[from] SurrealError),
     #[error("Not found: {0}")]
     NotFound(String),
     #[error("AI error: {0}")]

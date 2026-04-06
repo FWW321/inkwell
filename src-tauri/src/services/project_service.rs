@@ -1,74 +1,69 @@
 use crate::db::models::Project;
 use crate::error::{AppError, AppResult};
-use rusqlite::{Connection, params};
-use uuid::Uuid;
+use crate::state::Db;
+use surrealdb::types::RecordId;
 
-pub fn list(conn: &Connection) -> AppResult<Vec<Project>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, title, description, author, language, tags, status, cover_url, created_at, updated_at FROM projects ORDER BY updated_at DESC"
-    )?;
-    let projects = stmt
-        .query_map([], |row| {
-            Ok(Project {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                description: row.get(2)?,
-                author: row.get(3)?,
-                language: row.get(4)?,
-                tags: row.get(5)?,
-                status: row.get(6)?,
-                cover_url: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+pub async fn list(db: &Db) -> AppResult<Vec<Project>> {
+    let projects: Vec<Project> = db
+        .query("SELECT * FROM project ORDER BY updated_at DESC")
+        .await?
+        .take::<Vec<Project>>(0)?;
     Ok(projects)
 }
 
-pub fn get(conn: &Connection, id: &str) -> AppResult<Project> {
-    conn.query_row(
-        "SELECT id, title, description, author, language, tags, status, cover_url, created_at, updated_at FROM projects WHERE id = ?1",
-        params![id],
-        |row| {
-            Ok(Project {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                description: row.get(2)?,
-                author: row.get(3)?,
-                language: row.get(4)?,
-                tags: row.get(5)?,
-                status: row.get(6)?,
-                cover_url: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-            })
-        },
-    ).map_err(|_| AppError::NotFound(format!("Project {} not found", id)))
+pub async fn get(db: &Db, id: &str) -> AppResult<Project> {
+    let record: Option<Project> = db.select(("project", id)).await?;
+    record.ok_or_else(|| AppError::NotFound(format!("Project {} not found", id)))
 }
 
-pub fn create(conn: &Connection, title: &str, description: &str, author: &str, language: &str, tags: &str, status: &str) -> AppResult<Project> {
-    let id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "INSERT INTO projects (id, title, description, author, language, tags, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-        params![id, title, description, author, language, tags, status, now],
-    )?;
-    get(conn, &id)
+pub async fn create(
+    db: &Db,
+    title: &str,
+    description: &str,
+    author: &str,
+    language: &str,
+    tags: &str,
+    status: &str,
+) -> AppResult<Project> {
+    let data = serde_json::json!({
+        "title": title,
+        "description": description,
+        "author": author,
+        "language": language,
+        "tags": tags,
+        "status": status,
+    });
+
+    let created: Option<Project> = db.create("project").content(data).await?;
+    created.ok_or_else(|| AppError::Internal("create project failed".into()))
 }
 
-pub fn update(conn: &Connection, id: &str, title: &str, description: &str, author: &str, language: &str, tags: &str, status: &str) -> AppResult<Project> {
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "UPDATE projects SET title = ?1, description = ?2, author = ?3, language = ?4, tags = ?5, status = ?6, updated_at = ?7 WHERE id = ?8",
-        params![title, description, author, language, tags, status, now, id],
-    )?;
-    get(conn, id)
+pub async fn update(
+    db: &Db,
+    id: &str,
+    title: &str,
+    description: &str,
+    author: &str,
+    language: &str,
+    tags: &str,
+    status: &str,
+) -> AppResult<Project> {
+    db.query("UPDATE type::record($id) SET title = $title, description = $description, author = $author, language = $language, tags = $tags, status = $status, updated_at = time::now()")
+        .bind(("id", RecordId::new("project", id)))
+        .bind(("title", title.to_string()))
+        .bind(("description", description.to_string()))
+        .bind(("author", author.to_string()))
+        .bind(("language", language.to_string()))
+        .bind(("tags", tags.to_string()))
+        .bind(("status", status.to_string()))
+        .await?;
+
+    get(db, id).await
 }
 
-pub fn delete(conn: &Connection, id: &str) -> AppResult<()> {
-    let rows = conn.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
-    if rows == 0 {
+pub async fn delete(db: &Db, id: &str) -> AppResult<()> {
+    let deleted: Option<Project> = db.delete(("project", id)).await?;
+    if deleted.is_none() {
         return Err(AppError::NotFound(format!("Project {} not found", id)));
     }
     Ok(())

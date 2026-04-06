@@ -4,50 +4,40 @@ use crate::services::worldview_service;
 use crate::state::AppState;
 use tauri::State;
 
-macro_rules! get_conn {
-    ($state:expr) => {
-        $state
-            .db
-            .lock()
-            .map_err(|e| crate::error::AppError::Internal(e.to_string()))?
-    };
-}
-
 #[tauri::command]
-pub fn list_worldview_entries(
-    state: State<AppState>,
+pub async fn list_worldview_entries(
+    state: State<'_, AppState>,
     project_id: String,
 ) -> AppResult<Vec<WorldviewEntry>> {
-    let conn = get_conn!(state);
-    worldview_service::list(&conn, &project_id)
+    worldview_service::list(&state.db, &project_id).await
 }
 
 #[tauri::command]
-pub fn create_worldview_entry(
-    state: State<AppState>,
+pub async fn create_worldview_entry(
+    state: State<'_, AppState>,
     project_id: String,
     category: String,
     title: String,
     content: String,
 ) -> AppResult<WorldviewEntry> {
-    let conn = get_conn!(state);
-    worldview_service::create(&conn, &project_id, &category, &title, &content)
+    worldview_service::create(&state.db, &project_id, &category, &title, &content).await
 }
 
 #[tauri::command]
-pub fn update_worldview_entry(
-    state: State<AppState>,
+pub async fn update_worldview_entry(
+    state: State<'_, AppState>,
     id: String,
     category: String,
     title: String,
     content: String,
 ) -> AppResult<WorldviewEntry> {
-    let conn = get_conn!(state);
-    worldview_service::update(&conn, &id, &category, &title, &content)
+    worldview_service::update(&state.db, &id, &category, &title, &content).await
 }
 
 #[tauri::command]
-pub fn delete_worldview_entry(state: State<AppState>, id: String) -> AppResult<()> {
-    let conn = get_conn!(state);
-    worldview_service::delete(&conn, &id)
+pub async fn delete_worldview_entry(
+    state: State<'_, AppState>,
+    id: String,
+) -> AppResult<()> {
+    worldview_service::delete(&state.db, &id).await
 }

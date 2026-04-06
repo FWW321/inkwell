@@ -1,78 +1,52 @@
 use crate::db::models::WorldviewEntry;
 use crate::error::{AppError, AppResult};
-use rusqlite::{Connection, params};
-use uuid::Uuid;
+use crate::state::Db;
+use surrealdb::types::RecordId;
 
-pub fn list(conn: &Connection, project_id: &str) -> AppResult<Vec<WorldviewEntry>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, project_id, category, title, content, created_at FROM worldview_entries WHERE project_id = ?1 ORDER BY category, title"
-    )?;
-    let entries = stmt
-        .query_map(params![project_id], |row| {
-            Ok(WorldviewEntry {
-                id: row.get(0)?,
-                project_id: row.get(1)?,
-                category: row.get(2)?,
-                title: row.get(3)?,
-                content: row.get(4)?,
-                created_at: row.get(5)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(entries)
+pub async fn list(db: &Db, project_id: &str) -> AppResult<Vec<WorldviewEntry>> {
+    db.query("SELECT * FROM worldview_entry WHERE project = $pid ORDER BY category, title")
+        .bind(("pid", RecordId::new("project", project_id)))
+        .await?.take::<Vec<WorldviewEntry>>(0).map_err(Into::into)
 }
 
-pub fn create(
-    conn: &Connection,
+pub async fn create(
+    db: &Db,
     project_id: &str,
     category: &str,
     title: &str,
     content: &str,
 ) -> AppResult<WorldviewEntry> {
-    let id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "INSERT INTO worldview_entries (id, project_id, category, title, content, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, project_id, category, title, content, now],
-    )?;
-    conn.query_row(
-        "SELECT id, project_id, category, title, content, created_at FROM worldview_entries WHERE id = ?1",
-        params![id],
-        |row| Ok(WorldviewEntry {
-            id: row.get(0)?, project_id: row.get(1)?, category: row.get(2)?,
-            title: row.get(3)?, content: row.get(4)?, created_at: row.get(5)?,
-        }),
-    ).map_err(|_| AppError::NotFound(format!("WorldviewEntry {} not found", id)))
+    db.query("CREATE worldview_entry CONTENT { project: type::record('project', $pid), category: $category, title: $title, content: $content }")
+        .bind(("pid", project_id.to_string()))
+        .bind(("category", category.to_string()))
+        .bind(("title", title.to_string()))
+        .bind(("content", content.to_string()))
+        .await?.take::<Option<WorldviewEntry>>(0)?
+        .ok_or_else(|| AppError::Internal("create worldview_entry failed".into()))
 }
 
-pub fn update(
-    conn: &Connection,
+pub async fn update(
+    db: &Db,
     id: &str,
     category: &str,
     title: &str,
     content: &str,
 ) -> AppResult<WorldviewEntry> {
-    conn.execute(
-        "UPDATE worldview_entries SET category = ?1, title = ?2, content = ?3 WHERE id = ?4",
-        params![category, title, content, id],
-    )?;
-    conn.query_row(
-        "SELECT id, project_id, category, title, content, created_at FROM worldview_entries WHERE id = ?1",
-        params![id],
-        |row| Ok(WorldviewEntry {
-            id: row.get(0)?, project_id: row.get(1)?, category: row.get(2)?,
-            title: row.get(3)?, content: row.get(4)?, created_at: row.get(5)?,
-        }),
-    ).map_err(|_| AppError::NotFound(format!("WorldviewEntry {} not found", id)))
+    db.query("UPDATE type::record($id) SET category = $category, title = $title, content = $content, updated_at = time::now()")
+        .bind(("id", RecordId::new("worldview_entry", id)))
+        .bind(("category", category.to_string()))
+        .bind(("title", title.to_string()))
+        .bind(("content", content.to_string()))
+        .await?;
+
+    db.select(("worldview_entry", id)).await?
+        .ok_or_else(|| AppError::NotFound(format!("WorldviewEntry {} not found", id)))
 }
 
-pub fn delete(conn: &Connection, id: &str) -> AppResult<()> {
-    let rows = conn.execute("DELETE FROM worldview_entries WHERE id = ?1", params![id])?;
-    if rows == 0 {
-        return Err(AppError::NotFound(format!(
-            "WorldviewEntry {} not found",
-            id
-        )));
+pub async fn delete(db: &Db, id: &str) -> AppResult<()> {
+    let deleted: Option<WorldviewEntry> = db.delete(("worldview_entry", id)).await?;
+    if deleted.is_none() {
+        return Err(AppError::NotFound(format!("WorldviewEntry {} not found", id)));
     }
     Ok(())
 }

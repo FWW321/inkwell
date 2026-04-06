@@ -5,26 +5,18 @@ use crate::state::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub fn list_projects(state: State<AppState>) -> AppResult<Vec<Project>> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-    project_service::list(&conn)
+pub async fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
+    project_service::list(&state.db).await
 }
 
 #[tauri::command]
-pub fn get_project(state: State<AppState>, id: String) -> AppResult<Project> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-    project_service::get(&conn, &id)
+pub async fn get_project(state: State<'_, AppState>, id: String) -> AppResult<Project> {
+    project_service::get(&state.db, &id).await
 }
 
 #[tauri::command]
-pub fn create_project(
-    state: State<AppState>,
+pub async fn create_project(
+    state: State<'_, AppState>,
     title: String,
     description: String,
     author: String,
@@ -32,16 +24,12 @@ pub fn create_project(
     tags: String,
     status: String,
 ) -> AppResult<Project> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-    project_service::create(&conn, &title, &description, &author, &language, &tags, &status)
+    project_service::create(&state.db, &title, &description, &author, &language, &tags, &status).await
 }
 
 #[tauri::command]
-pub fn update_project(
-    state: State<AppState>,
+pub async fn update_project(
+    state: State<'_, AppState>,
     id: String,
     title: String,
     description: String,
@@ -50,18 +38,10 @@ pub fn update_project(
     tags: String,
     status: String,
 ) -> AppResult<Project> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-    project_service::update(&conn, &id, &title, &description, &author, &language, &tags, &status)
+    project_service::update(&state.db, &id, &title, &description, &author, &language, &tags, &status).await
 }
 
 #[tauri::command]
-pub fn delete_project(state: State<AppState>, id: String) -> AppResult<()> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-    project_service::delete(&conn, &id)
+pub async fn delete_project(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    project_service::delete(&state.db, &id).await
 }

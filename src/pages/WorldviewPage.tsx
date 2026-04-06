@@ -14,6 +14,9 @@ import {
   Wand2,
   Cpu,
   Bookmark,
+  Swords,
+  Users,
+  Gem,
 } from "lucide-react";
 import { worldviewApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -33,28 +36,37 @@ import { Select, SelectTrigger, SelectContent, SelectGroup, SelectItem, SelectVa
 const categories = [
   { key: "all", label: "全部", icon: Globe },
   { key: "geography", label: "地理", icon: MapPin },
+  { key: "faction", label: "势力", icon: Swords },
+  { key: "race", label: "种族", icon: Users },
   { key: "history", label: "历史", icon: Clock },
   { key: "culture", label: "文化", icon: Palette },
   { key: "magic", label: "魔法体系", icon: Wand2 },
   { key: "technology", label: "科技", icon: Cpu },
+  { key: "item", label: "物品", icon: Gem },
   { key: "other", label: "其他", icon: Bookmark },
 ];
 
 const categoryMap: Record<string, string> = {
   geography: "地理",
+  faction: "势力",
+  race: "种族",
   history: "历史",
   culture: "文化",
   magic: "魔法体系",
   technology: "科技",
+  item: "物品",
   other: "其他",
 };
 
 const categoryVariant: Record<string, "default" | "secondary" | "outline" | "ghost"> = {
   geography: "secondary",
+  faction: "default",
+  race: "secondary",
   history: "secondary",
   culture: "secondary",
   magic: "default",
   technology: "secondary",
+  item: "secondary",
   other: "ghost",
 };
 

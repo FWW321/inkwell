@@ -23,7 +23,7 @@ export interface OutlineNode {
   node_type: NodeType;
   title: string;
   sort_order: number;
-  content_json: string;
+  content_json: Record<string, unknown>;
   word_count: number;
   status: ChapterStatus;
   diff_original?: string | null;
@@ -41,6 +41,9 @@ export interface Character {
   description: string;
   personality: string;
   background: string;
+  race: string;
+  model_id?: string | null;
+  model_name?: string | null;
   created_at: string;
 }
 
@@ -93,4 +96,68 @@ export interface AiEditorState {
   chapterId: string;
   projectId: string;
   hasSelection: boolean;
+}
+
+export interface NarrativeSession {
+  id: string;
+  project_id: string;
+  title: string;
+  scene: string;
+  atmosphere: string;
+  character_states: Record<string, unknown>;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NarrativeBeat {
+  id: string;
+  session_id: string;
+  beat_type: "narration" | "character_action" | "scene_change" | "author_intervention";
+  character_id: string | null;
+  character_name: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface NarrativeStreamChunk {
+  beat_id: string;
+  beat_type: string;
+  character_id: string | null;
+  character_name: string;
+  text: string;
+  done: boolean;
+}
+
+export interface CharacterRelation {
+  id: string;
+  project_id: string;
+  char_a_id: string;
+  char_a_name: string;
+  char_b_id: string;
+  char_b_name: string;
+  relationship_type: string;
+  description: string;
+  start_chapter_id: string | null;
+  start_chapter_title: string | null;
+  end_chapter_id: string | null;
+  end_chapter_title: string | null;
+  created_at: string;
+}
+
+export interface CharacterFaction {
+  id: string;
+  project_id: string;
+  character_id: string;
+  character_name: string;
+  faction_id: string;
+  faction_name: string;
+  role: string;
+  start_chapter_id: string | null;
+  start_chapter_title: string | null;
+  end_chapter_id: string | null;
+  end_chapter_title: string | null;
+  created_at: string;
 }

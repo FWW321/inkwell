@@ -1,17 +1,13 @@
 use futures_util::StreamExt;
-use rig::agent::MultiTurnStreamItem;
-use rig::client::CompletionClient;
-use rig::completion::Prompt;
-use rig::streaming::StreamedAssistantContent;
-use rig::streaming::StreamingPrompt;
-use rusqlite::{Connection, params};
+use reqwest::Client;
 use serde::Deserialize;
 use tauri::ipc::Channel;
-use uuid::Uuid;
 
-use crate::db::models::{AiAgent, AiConfig};
+use crate::db::models::{AiAgent, AiAgentWithModelName, AiConfig};
 use crate::error::{AppError, AppResult};
 use crate::services::context_service;
+use crate::state::Db;
+use surrealdb::types::{RecordId, SurrealValue, ToSql, Value};
 
 #[derive(serde::Serialize, Clone)]
 pub struct StreamChunk {
@@ -31,13 +27,48 @@ struct ModelObject {
     id: String,
 }
 
+fn is_unique_error(e: &surrealdb::Error) -> bool {
+    let msg = e.to_string();
+    msg.contains("UNIQUE") || msg.contains("unique")
+}
+
+fn is_record_error(e: &surrealdb::Error) -> bool {
+    e.to_string().contains("record")
+}
+
+fn get_created_id(v: &Value) -> String {
+    match v {
+        Value::Object(map) => {
+            if let Some(Value::RecordId(rid)) = map.get("id") {
+                return rid.key.to_sql();
+            }
+        }
+        _ => {}
+    }
+    String::new()
+}
+
+async fn promote_default(db: &Db, table: &str) -> AppResult<()> {
+    let first: Option<RecordId> = db
+        .query("SELECT id, created_at FROM type::table($table) ORDER BY created_at ASC LIMIT 1")
+        .bind(("table", table.to_string()))
+        .await?
+        .take::<Option<RecordId>>(0)?;
+    if let Some(first_id) = first {
+        db.query("UPDATE type::record($id) SET is_default = true")
+            .bind(("id", first_id))
+            .await?;
+    }
+    Ok(())
+}
+
 pub async fn fetch_available_models(api_key: &str, base_url: &str) -> AppResult<Vec<String>> {
     if api_key.is_empty() {
         return Err(AppError::Ai("请先配置 API Key".to_string()));
     }
 
     let url = format!("{}/models", base_url.trim_end_matches('/'));
-    let resp = reqwest::Client::new()
+    let resp = Client::new()
         .get(&url)
         .bearer_auth(api_key)
         .send()
@@ -63,300 +94,282 @@ pub async fn fetch_available_models(api_key: &str, base_url: &str) -> AppResult<
     Ok(ids)
 }
 
-pub fn list_models(conn: &Connection) -> AppResult<Vec<AiConfig>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, api_key, model, base_url, is_default, created_at FROM ai_models ORDER BY is_default DESC, created_at ASC"
-    )?;
-    let models = stmt
-        .query_map([], |row| {
-            Ok(AiConfig {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                api_key: row.get(2)?,
-                model: row.get(3)?,
-                base_url: row.get(4)?,
-                is_default: row.get::<_, i32>(5)? != 0,
-                created_at: row.get(6)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(models)
+pub async fn list_models(db: &Db) -> AppResult<Vec<AiConfig>> {
+    db.query("SELECT * FROM ai_model ORDER BY is_default DESC, created_at ASC")
+        .await?.take::<Vec<AiConfig>>(0).map_err(Into::into)
 }
 
-pub fn get_default_config(conn: &Connection) -> AppResult<AiConfig> {
-    let result = conn.query_row(
-        "SELECT id, name, api_key, model, base_url, is_default, created_at FROM ai_models WHERE is_default = 1 LIMIT 1",
-        [],
-        |row| {
-            Ok(AiConfig {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                api_key: row.get(2)?,
-                model: row.get(3)?,
-                base_url: row.get(4)?,
-                is_default: row.get::<_, i32>(5)? != 0,
-                created_at: row.get(6)?,
-            })
-        },
-    );
+pub async fn get_default_config(db: &Db) -> AppResult<AiConfig> {
+    let result: Option<AiConfig> = db
+        .query("SELECT * FROM ai_model WHERE is_default = true LIMIT 1")
+        .await?
+        .take::<Option<AiConfig>>(0)?;
 
     match result {
-        Ok(c) => Ok(c),
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            let models = list_models(conn)?;
-            models.into_iter().next().ok_or(AppError::Ai("请先配置 AI 模型".to_string()))
+        Some(c) => Ok(c),
+        None => list_models(db).await?
+            .into_iter()
+            .next()
+            .ok_or(AppError::Ai("请先配置 AI 模型".to_string())),
+    }
+}
+
+pub async fn get_model(db: &Db, id: &str) -> AppResult<AiConfig> {
+    db.select(("ai_model", id)).await?
+        .ok_or_else(|| AppError::NotFound("模型不存在".to_string()))
+}
+
+pub async fn list_agents(db: &Db) -> AppResult<Vec<AiAgentWithModelName>> {
+    db.query("SELECT *, model.name AS model_name FROM ai_agent ORDER BY is_default DESC, created_at ASC")
+        .await?.take::<Vec<AiAgentWithModelName>>(0).map_err(Into::into)
+}
+
+pub async fn get_default_agent(db: &Db) -> AppResult<AiAgentWithModelName> {
+    let result: Option<AiAgentWithModelName> = db
+        .query("SELECT *, model.name AS model_name FROM ai_agent WHERE is_default = true LIMIT 1")
+        .await?
+        .take::<Option<AiAgentWithModelName>>(0)?;
+
+    match result {
+        Some(a) => Ok(a),
+        None => list_agents(db).await?
+            .into_iter()
+            .next()
+            .ok_or(AppError::Ai("请先配置 AI 助手".to_string())),
+    }
+}
+
+async fn get_agent(db: &Db, id: &str) -> AppResult<AiAgentWithModelName> {
+    let records: Vec<AiAgentWithModelName> = db
+        .query("SELECT *, model.name AS model_name FROM ai_agent WHERE id = $id")
+        .bind(("id", RecordId::new("ai_agent", id)))
+        .await?
+        .take::<Vec<AiAgentWithModelName>>(0)?;
+    records.into_iter().next()
+        .ok_or_else(|| AppError::NotFound("助手不存在".to_string()))
+}
+
+pub async fn create_agent(
+    db: &Db,
+    name: &str,
+    model_id: &str,
+    system_prompt: &str,
+) -> AppResult<AiAgentWithModelName> {
+    let count: Option<i64> = db
+        .query("SELECT VALUE count() FROM ai_agent")
+        .await?
+        .take::<Option<i64>>(0)?;
+    let is_default = count.map(|c| c == 0).unwrap_or(true);
+
+    let result: Result<Option<Value>, surrealdb::Error> = db
+        .query(
+            "CREATE ai_agent CONTENT { \
+             name: $name, \
+             model: type::record('ai_model', $mid), \
+             system_prompt: $prompt, \
+             is_default: $is_default \
+             }"
+        )
+        .bind(("name", name.to_string()))
+        .bind(("mid", model_id.to_string()))
+        .bind(("prompt", system_prompt.to_string()))
+        .bind(("is_default", is_default))
+        .await?
+        .take::<Option<Value>>(0);
+
+    match result {
+        Ok(Some(v)) => {
+            let id_str = get_created_id(&v);
+            get_agent(db, &id_str).await
         }
+        Ok(None) => Err(AppError::Internal("create agent failed".into())),
+        Err(e) if is_unique_error(&e) => Err(AppError::Ai("已存在同名的助手".to_string())),
+        Err(e) if is_record_error(&e) => Err(AppError::Ai("关联的模型不存在".to_string())),
         Err(e) => Err(AppError::Database(e)),
     }
 }
 
-pub fn get_model(conn: &Connection, id: &str) -> AppResult<AiConfig> {
-    conn.query_row(
-        "SELECT id, name, api_key, model, base_url, is_default, created_at FROM ai_models WHERE id = ?1",
-        params![id],
-        |row| {
-            Ok(AiConfig {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                api_key: row.get(2)?,
-                model: row.get(3)?,
-                base_url: row.get(4)?,
-                is_default: row.get::<_, i32>(5)? != 0,
-                created_at: row.get(6)?,
-            })
-        },
-    ).map_err(|_| AppError::NotFound("模型不存在".to_string()))
-}
+pub async fn update_agent(
+    db: &Db,
+    id: &str,
+    name: &str,
+    model_id: &str,
+    system_prompt: &str,
+) -> AppResult<AiAgentWithModelName> {
+    let result: Result<Option<Value>, surrealdb::Error> = db
+        .query(
+            "UPDATE type::record($id) MERGE { \
+             name: $name, \
+             model: type::record('ai_model', $mid), \
+             system_prompt: $prompt \
+             }"
+        )
+        .bind(("id", RecordId::new("ai_agent", id)))
+        .bind(("name", name.to_string()))
+        .bind(("mid", model_id.to_string()))
+        .bind(("prompt", system_prompt.to_string()))
+        .await?
+        .take::<Option<Value>>(0);
 
-pub fn list_agents(conn: &Connection) -> AppResult<Vec<AiAgent>> {
-    let mut stmt = conn.prepare(
-        "SELECT a.id, a.name, a.model_id, a.system_prompt, a.is_default, a.created_at, m.name AS model_name \
-         FROM ai_agents a LEFT JOIN ai_models m ON a.model_id = m.id \
-         ORDER BY a.is_default DESC, a.created_at ASC"
-    )?;
-    let agents = stmt
-        .query_map([], |row| {
-            Ok(AiAgent {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                model_id: row.get(2)?,
-                system_prompt: row.get(3)?,
-                is_default: row.get::<_, i32>(4)? != 0,
-                created_at: row.get(5)?,
-                model_name: row.get(6)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(agents)
-}
-
-pub fn get_default_agent(conn: &Connection) -> AppResult<AiAgent> {
-    let result = conn.query_row(
-        "SELECT a.id, a.name, a.model_id, a.system_prompt, a.is_default, a.created_at, m.name AS model_name \
-         FROM ai_agents a LEFT JOIN ai_models m ON a.model_id = m.id \
-         WHERE a.is_default = 1 LIMIT 1",
-        [],
-        |row| {
-            Ok(AiAgent {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                model_id: row.get(2)?,
-                system_prompt: row.get(3)?,
-                is_default: row.get::<_, i32>(4)? != 0,
-                created_at: row.get(5)?,
-                model_name: row.get(6)?,
-            })
-        },
-    );
     match result {
-        Ok(a) => Ok(a),
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            let agents = list_agents(conn)?;
-            agents.into_iter().next().ok_or(AppError::Ai("请先配置 AI 助手".to_string()))
-        }
+        Ok(Some(_)) => get_agent(db, id).await,
+        Ok(None) => Err(AppError::NotFound("助手不存在".to_string())),
+        Err(e) if is_unique_error(&e) => Err(AppError::Ai("已存在同名的助手".to_string())),
+        Err(e) if is_record_error(&e) => Err(AppError::Ai("关联的模型不存在".to_string())),
         Err(e) => Err(AppError::Database(e)),
     }
 }
 
-pub fn create_agent(conn: &Connection, name: &str, model_id: &str, system_prompt: &str) -> AppResult<AiAgent> {
-    let id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM ai_agents", [], |r| r.get(0))?;
-    let is_default = count == 0;
-    conn.execute(
-        "INSERT INTO ai_agents (id, name, model_id, system_prompt, is_default, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, name, model_id, system_prompt, is_default, now],
-    ).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("UNIQUE constraint failed") && msg.contains("name") {
-            AppError::Ai("已存在同名的助手".to_string())
-        } else if msg.contains("FOREIGN KEY constraint failed") {
-            AppError::Ai("关联的模型不存在".to_string())
-        } else {
-            AppError::Database(e)
-        }
-    })?;
-    get_agent(conn, &id)
-}
+pub async fn delete_agent(db: &Db, id: &str) -> AppResult<()> {
+    let record: Option<AiAgent> = db.select(("ai_agent", id)).await?;
+    let was_default = record
+        .map(|a| a.is_default)
+        .ok_or_else(|| AppError::NotFound("助手不存在".to_string()))?;
 
-pub fn update_agent(conn: &Connection, id: &str, name: &str, model_id: &str, system_prompt: &str) -> AppResult<AiAgent> {
-    conn.execute(
-        "UPDATE ai_agents SET name = ?1, model_id = ?2, system_prompt = ?3 WHERE id = ?4",
-        params![name, model_id, system_prompt, id],
-    ).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("UNIQUE constraint failed") && msg.contains("name") {
-            AppError::Ai("已存在同名的助手".to_string())
-        } else if msg.contains("FOREIGN KEY constraint failed") {
-            AppError::Ai("关联的模型不存在".to_string())
-        } else {
-            AppError::Database(e)
-        }
-    })?;
-    get_agent(conn, id)
-}
-
-pub fn delete_agent(conn: &Connection, id: &str) -> AppResult<()> {
-    let was_default: bool = conn.query_row(
-        "SELECT is_default FROM ai_agents WHERE id = ?1",
-        params![id],
-        |r| r.get::<_, i32>(0).map(|v| v != 0),
-    ).map_err(|_| AppError::NotFound("助手不存在".to_string()))?;
-
-    conn.execute("DELETE FROM ai_agents WHERE id = ?1", params![id])?;
+    let _: Option<AiAgent> = db.delete(("ai_agent", id)).await?;
 
     if was_default {
-        if let Ok(first) = conn.query_row(
-            "SELECT id FROM ai_agents ORDER BY created_at ASC LIMIT 1",
-            [],
-            |r| r.get::<_, String>(0),
-        ) {
-            conn.execute("UPDATE ai_agents SET is_default = 1 WHERE id = ?1", params![first])?;
-        }
+        promote_default(db, "ai_agent").await?;
     }
     Ok(())
 }
 
-pub fn set_default_agent(conn: &Connection, id: &str) -> AppResult<()> {
-    conn.execute("UPDATE ai_agents SET is_default = 0", [])?;
-    conn.execute("UPDATE ai_agents SET is_default = 1 WHERE id = ?1", params![id])?;
+pub async fn set_default_agent(db: &Db, id: &str) -> AppResult<()> {
+    db.query("UPDATE ai_agent SET is_default = false WHERE is_default = true")
+        .await?;
+    db.query("UPDATE type::record($id) SET is_default = true")
+        .bind(("id", RecordId::new("ai_agent", id)))
+        .await?;
     Ok(())
 }
 
-fn get_agent(conn: &Connection, id: &str) -> AppResult<AiAgent> {
-    conn.query_row(
-        "SELECT a.id, a.name, a.model_id, a.system_prompt, a.is_default, a.created_at, m.name AS model_name \
-         FROM ai_agents a LEFT JOIN ai_models m ON a.model_id = m.id \
-         WHERE a.id = ?1",
-        params![id],
-        |row| {
-            Ok(AiAgent {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                model_id: row.get(2)?,
-                system_prompt: row.get(3)?,
-                is_default: row.get::<_, i32>(4)? != 0,
-                created_at: row.get(5)?,
-                model_name: row.get(6)?,
-            })
-        },
-    ).map_err(|_| AppError::NotFound("助手不存在".to_string()))
+pub async fn create_model(
+    db: &Db,
+    name: &str,
+    api_key: &str,
+    model: &str,
+    base_url: &str,
+) -> AppResult<AiConfig> {
+    let count: Option<i64> = db
+        .query("SELECT VALUE count() FROM ai_model")
+        .await?
+        .take::<Option<i64>>(0)?;
+    let is_default = count.map(|c| c == 0).unwrap_or(true);
+
+    let data = serde_json::json!({
+        "name": name,
+        "api_key": api_key,
+        "model": model,
+        "base_url": base_url,
+        "is_default": is_default,
+    });
+
+    let result: Result<Option<AiConfig>, surrealdb::Error> =
+        db.create("ai_model").content(data).await;
+
+    match result {
+        Ok(Some(cfg)) => Ok(cfg),
+        Ok(None) => Err(AppError::Internal("create model failed".into())),
+        Err(e) if is_unique_error(&e) => Err(AppError::Ai("已存在同名配置".to_string())),
+        Err(e) => Err(AppError::Database(e)),
+    }
 }
 
-pub fn create_model(conn: &Connection, name: &str, api_key: &str, model: &str, base_url: &str) -> AppResult<AiConfig> {
-    let id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM ai_models", [], |r| r.get(0))?;
-    let is_default = count == 0;
-    conn.execute(
-        "INSERT INTO ai_models (id, name, api_key, model, base_url, is_default, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![id, name, api_key, model, base_url, is_default, now],
-    ).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("UNIQUE constraint failed") && msg.contains("name") {
-            AppError::Ai("已存在同名配置".to_string())
-        } else if msg.contains("UNIQUE constraint failed") {
-            AppError::Ai("已存在相同配置的模型（API Key + Base URL + 模型名称重复）".to_string())
-        } else {
-            AppError::Database(e)
-        }
-    })?;
-    get_model(conn, &id)
+pub async fn update_model(
+    db: &Db,
+    id: &str,
+    name: &str,
+    api_key: &str,
+    model: &str,
+    base_url: &str,
+) -> AppResult<AiConfig> {
+    let data = serde_json::json!({
+        "name": name,
+        "api_key": api_key,
+        "model": model,
+        "base_url": base_url,
+    });
+
+    let result: Result<Option<AiConfig>, surrealdb::Error> =
+        db.update(("ai_model", id)).merge(data).await;
+
+    match result {
+        Ok(Some(_)) => get_model(db, id).await,
+        Ok(None) => Err(AppError::NotFound("模型不存在".to_string())),
+        Err(e) if is_unique_error(&e) => Err(AppError::Ai("已存在同名配置".to_string())),
+        Err(e) => Err(AppError::Database(e)),
+    }
 }
 
-pub fn update_model(conn: &Connection, id: &str, name: &str, api_key: &str, model: &str, base_url: &str) -> AppResult<AiConfig> {
-    conn.execute(
-        "UPDATE ai_models SET name = ?1, api_key = ?2, model = ?3, base_url = ?4 WHERE id = ?5",
-        params![name, api_key, model, base_url, id],
-    ).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("UNIQUE constraint failed") && msg.contains("name") {
-            AppError::Ai("已存在同名配置".to_string())
-        } else if msg.contains("UNIQUE constraint failed") {
-            AppError::Ai("已存在相同配置的模型（API Key + Base URL + 模型名称重复）".to_string())
-        } else {
-            AppError::Database(e)
-        }
-    })?;
-    get_model(conn, id)
-}
+pub async fn delete_model(db: &Db, id: &str) -> AppResult<()> {
+    let record: Option<AiConfig> = db.select(("ai_model", id)).await?;
+    let was_default = record
+        .map(|c| c.is_default)
+        .ok_or_else(|| AppError::NotFound("模型不存在".to_string()))?;
 
-pub fn delete_model(conn: &Connection, id: &str) -> AppResult<()> {
-    let was_default: bool = conn.query_row(
-        "SELECT is_default FROM ai_models WHERE id = ?1",
-        params![id],
-        |r| r.get::<_, i32>(0).map(|v| v != 0),
-    ).map_err(|_| AppError::NotFound("模型不存在".to_string()))?;
-
-    conn.execute("DELETE FROM ai_models WHERE id = ?1", params![id])?;
+    let _: Option<AiConfig> = db.delete(("ai_model", id)).await?;
 
     if was_default {
-        if let Ok(first) = conn.query_row(
-            "SELECT id FROM ai_models ORDER BY created_at ASC LIMIT 1",
-            [],
-            |r| r.get::<_, String>(0),
-        ) {
-            conn.execute("UPDATE ai_models SET is_default = 1 WHERE id = ?1", params![first])?;
-        }
+        promote_default(db, "ai_model").await?;
     }
     Ok(())
 }
 
-pub fn set_default_model(conn: &Connection, id: &str) -> AppResult<()> {
-    conn.execute("UPDATE ai_models SET is_default = 0", [])?;
-    conn.execute("UPDATE ai_models SET is_default = 1 WHERE id = ?1", params![id])?;
+pub async fn set_default_model(db: &Db, id: &str) -> AppResult<()> {
+    db.query("UPDATE ai_model SET is_default = false WHERE is_default = true")
+        .await?;
+    db.query("UPDATE type::record($id) SET is_default = true")
+        .bind(("id", RecordId::new("ai_model", id)))
+        .await?;
     Ok(())
 }
 
-pub fn set_config(conn: &Connection, api_key: &str, model: &str, base_url: &str) -> AppResult<()> {
-    conn.execute(
-        "UPDATE ai_models SET api_key = ?1, model = ?2, base_url = ?3 WHERE is_default = 1",
-        params![api_key, model, base_url],
-    )?;
-    Ok(())
-}
-
-fn build_agent(
+pub(crate) async fn chat_completion(
     config: &AiConfig,
-    preamble: &str,
-) -> AppResult<rig::agent::Agent<rig::providers::openai::completion::CompletionModel>> {
+    system_prompt: &str,
+    user_message: &str,
+    temperature: f32,
+) -> AppResult<String> {
     if config.api_key.is_empty() {
         return Err(AppError::Ai("请先在设置中配置 API Key".to_string()));
     }
 
-    let client = rig::providers::openai::CompletionsClient::builder()
-        .api_key(&config.api_key)
-        .base_url(&config.base_url)
-        .build()
-        .map_err(|e| AppError::Ai(format!("创建 OpenAI 客户端失败: {}", e)))?;
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "model": config.model,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_message },
+        ],
+        "temperature": temperature,
+    });
 
-    let agent = client
-        .agent(&config.model)
-        .preamble(preamble)
-        .temperature(0.8)
-        .build();
+    let resp = Client::new()
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", config.api_key))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| AppError::Ai(format!("请求失败: {}", e)))?;
 
-    Ok(agent)
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let error_body = resp.text().await.unwrap_or_default();
+        return Err(AppError::Ai(format!(
+            "AI 请求失败 ({}): {}",
+            status, error_body
+        )));
+    }
+
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Ai(format!("解析响应失败: {}", e)))?;
+
+    data["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| AppError::Ai("AI 返回内容为空".to_string()))
 }
 
 pub async fn stream_ai(
@@ -365,53 +378,90 @@ pub async fn stream_ai(
     prompt_text: &str,
     on_chunk: &Channel<StreamChunk>,
 ) -> AppResult<()> {
-    let agent = build_agent(config, preamble)?;
-    let request = agent.stream_prompt(prompt_text);
-    let mut stream = request.await;
+    if config.api_key.is_empty() {
+        return Err(AppError::Ai("请先在设置中配置 API Key".to_string()));
+    }
 
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(MultiTurnStreamItem::StreamAssistantItem(content)) => {
-                match content {
-                    StreamedAssistantContent::Text(text) => {
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "model": config.model,
+        "messages": [
+            { "role": "system", "content": preamble },
+            { "role": "user", "content": prompt_text },
+        ],
+        "temperature": 0.8,
+        "stream": true,
+    });
+
+    let resp = Client::new()
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", config.api_key))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| AppError::Ai(format!("请求失败: {}", e)))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let error_body = resp.text().await.unwrap_or_default();
+        let _ = on_chunk.send(StreamChunk {
+            text: format!("\n\n[错误: {}]", error_body),
+            done: true,
+            reasoning: None,
+        });
+        return Err(AppError::Ai(format!(
+            "AI 请求失败 ({}): {}",
+            status, error_body
+        )));
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut buffer = String::new();
+
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| AppError::Ai(format!("流式读取错误: {}", e)))?;
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+        while let Some(pos) = buffer.find("\n\n") {
+            let event = buffer[..pos].to_string();
+            buffer = buffer[pos + 2..].to_string();
+
+            for line in event.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if data.trim() == "[DONE]" {
                         let _ = on_chunk.send(StreamChunk {
-                            text: text.text,
-                            done: false,
+                            text: String::new(),
+                            done: true,
                             reasoning: None,
                         });
+                        return Ok(());
                     }
-                    StreamedAssistantContent::Reasoning(reasoning) => {
-                        let display = reasoning.display_text();
-                        if !display.is_empty() {
-                            let _ = on_chunk.send(StreamChunk {
-                                text: String::new(),
-                                done: false,
-                                reasoning: Some(display),
-                            });
+
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+                        let delta = &parsed["choices"][0]["delta"];
+
+                        if let Some(text) = delta["content"].as_str() {
+                            if !text.is_empty() {
+                                let _ = on_chunk.send(StreamChunk {
+                                    text: text.to_string(),
+                                    done: false,
+                                    reasoning: None,
+                                });
+                            }
+                        }
+
+                        if let Some(reasoning) = delta["reasoning_content"].as_str() {
+                            if !reasoning.is_empty() {
+                                let _ = on_chunk.send(StreamChunk {
+                                    text: String::new(),
+                                    done: false,
+                                    reasoning: Some(reasoning.to_string()),
+                                });
+                            }
                         }
                     }
-                    StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
-                        if !reasoning.is_empty() {
-                            let _ = on_chunk.send(StreamChunk {
-                                text: String::new(),
-                                done: false,
-                                reasoning: Some(reasoning),
-                            });
-                        }
-                    }
-                    _ => {}
                 }
             }
-            Ok(MultiTurnStreamItem::FinalResponse(_)) => {}
-            Err(e) => {
-                let _ = on_chunk.send(StreamChunk {
-                    text: format!("\n\n[错误: {}]", e),
-                    done: true,
-                    reasoning: None,
-                });
-                return Err(AppError::Ai(format!("AI 流式输出错误: {}", e)));
-            }
-            _ => {}
         }
     }
 
@@ -447,11 +497,7 @@ pub async fn continue_writing(
         style, length_guide
     );
 
-    let agent = build_agent(config, &preamble)?;
-    agent
-        .prompt(context)
-        .await
-        .map_err(|e| AppError::Ai(format!("AI 请求失败: {}", e)))
+    chat_completion(config, &preamble, context, 0.8).await
 }
 
 pub async fn rewrite(
@@ -466,11 +512,7 @@ pub async fn rewrite(
         instruction
     );
 
-    let agent = build_agent(config, &preamble)?;
-    agent
-        .prompt(selected_text)
-        .await
-        .map_err(|e| AppError::Ai(format!("AI 请求失败: {}", e)))
+    chat_completion(config, &preamble, selected_text, 0.8).await
 }
 
 pub async fn polish(config: &AiConfig, selected_text: &str) -> AppResult<String> {
@@ -478,11 +520,7 @@ pub async fn polish(config: &AiConfig, selected_text: &str) -> AppResult<String>
                     保持原文的核心意思不变，适当优化用词和句式。\
                     直接输出润色后的内容，不要加任何说明或标记。";
 
-    let agent = build_agent(config, preamble)?;
-    agent
-        .prompt(selected_text)
-        .await
-        .map_err(|e| AppError::Ai(format!("AI 请求失败: {}", e)))
+    chat_completion(config, preamble, selected_text, 0.8).await
 }
 
 pub async fn generate_dialogue(
@@ -497,11 +535,7 @@ pub async fn generate_dialogue(
 
     let prompt = format!("角色信息：\n{}\n\n场景描述：\n{}", characters, scenario);
 
-    let agent = build_agent(config, preamble)?;
-    agent
-        .prompt(&*prompt)
-        .await
-        .map_err(|e| AppError::Ai(format!("AI 请求失败: {}", e)))
+    chat_completion(config, preamble, &prompt, 0.8).await
 }
 
 pub async fn chat(
@@ -515,50 +549,61 @@ pub async fn chat(
                     你可以帮助用户解决写作中的各种问题：情节构思、角色塑造、文笔提升、结构规划等。\
                     请给出具体、有建设性的建议。用中文回复。";
 
-    let agent = build_agent(config, preamble)?;
-    agent
-        .prompt(message)
-        .await
-        .map_err(|e| AppError::Ai(format!("AI 请求失败: {}", e)))
+    chat_completion(config, preamble, message, 0.8).await
 }
 
-pub fn save_chat_message(
-    conn: &Connection,
+pub async fn save_chat_message(
+    db: &Db,
     project_id: &str,
     role: &str,
     content: &str,
 ) -> AppResult<()> {
-    conn.execute(
-        "INSERT INTO ai_messages (project_id, role, content) VALUES (?1, ?2, ?3)",
-        params![project_id, role, content],
-    )?;
+    db.query(
+        "CREATE type::record($table) CONTENT { project: type::record('project', $pid), role: $role, content: $content }"
+    )
+    .bind(("table", "ai_message"))
+    .bind(("pid", project_id.to_string()))
+    .bind(("role", role.to_string()))
+    .bind(("content", content.to_string()))
+    .await?;
     Ok(())
 }
 
-pub fn get_chat_history(conn: &Connection, project_id: &str, limit: usize) -> AppResult<Vec<(String, String)>> {
-    let mut stmt = conn.prepare(
-        "SELECT role, content FROM ai_messages WHERE project_id = ?1 ORDER BY created_at DESC LIMIT ?2",
-    )?;
-
-    let rows: Vec<(String, String)> = stmt
-        .query_map(params![project_id, limit as i64], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(rows.into_iter().rev().collect())
+#[derive(Debug, Clone, SurrealValue)]
+pub struct ChatMessageRow {
+    pub role: String,
+    pub content: String,
 }
 
-pub fn clear_chat_history(conn: &Connection, project_id: &str) -> AppResult<()> {
-    conn.execute(
-        "DELETE FROM ai_messages WHERE project_id = ?1",
-        params![project_id],
-    )?;
+pub async fn get_chat_history(
+    db: &Db,
+    project_id: &str,
+    limit: usize,
+) -> AppResult<Vec<(String, String)>> {
+    let records: Vec<ChatMessageRow> = db
+        .query("SELECT role, content, created_at FROM ai_message WHERE project = $pid ORDER BY created_at DESC LIMIT $lim")
+        .bind(("pid", RecordId::new("project", project_id)))
+        .bind(("lim", limit as i64))
+        .await?
+        .take::<Vec<ChatMessageRow>>(0)?;
+
+    let mut rows: Vec<(String, String)> = records
+        .into_iter()
+        .map(|r| (r.role, r.content))
+        .collect();
+    rows.reverse();
+    Ok(rows)
+}
+
+pub async fn clear_chat_history(db: &Db, project_id: &str) -> AppResult<()> {
+    db.query("DELETE FROM ai_message WHERE project = $pid")
+        .bind(("pid", RecordId::new("project", project_id)))
+        .await?;
     Ok(())
 }
 
 pub async fn ai_stream_with_context(
+    db: &Db,
     config: &AiConfig,
     project_id: &str,
     chapter_id: Option<&str>,
@@ -568,8 +613,7 @@ pub async fn ai_stream_with_context(
     length: Option<&str>,
     on_chunk: &Channel<StreamChunk>,
 ) -> AppResult<()> {
-    let conn = get_connection_for_context(project_id);
-    let ctx = context_service::build_project_context(&conn, project_id, chapter_id)?;
+    let ctx = context_service::build_project_context(db, project_id, chapter_id).await?;
 
     let mut preamble = context_service::format_system_prompt(&ctx, mode);
 
@@ -587,13 +631,4 @@ pub async fn ai_stream_with_context(
     }
 
     stream_ai(config, &preamble, user_text, on_chunk).await
-}
-
-fn get_connection_for_context(_project_id: &str) -> Connection {
-    let db_path = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("inkwell")
-        .join("inkwell.db");
-
-    Connection::open(&db_path).expect("Failed to open DB for context")
 }

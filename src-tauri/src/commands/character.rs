@@ -1,65 +1,68 @@
-use crate::db::models::Character;
+use crate::db::models::{Character, CharacterWithModelName};
 use crate::error::AppResult;
 use crate::services::character_service;
 use crate::state::AppState;
 use tauri::State;
 
-macro_rules! get_conn {
-    ($state:expr) => {
-        $state
-            .db
-            .lock()
-            .map_err(|e| crate::error::AppError::Internal(e.to_string()))?
-    };
+#[tauri::command]
+pub async fn list_characters(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<CharacterWithModelName>> {
+    character_service::list(&state.db, &project_id).await
 }
 
 #[tauri::command]
-pub fn list_characters(state: State<AppState>, project_id: String) -> AppResult<Vec<Character>> {
-    let conn = get_conn!(state);
-    character_service::list(&conn, &project_id)
+pub async fn get_character(state: State<'_, AppState>, id: String) -> AppResult<CharacterWithModelName> {
+    character_service::get(&state.db, &id).await
 }
 
 #[tauri::command]
-pub fn get_character(state: State<AppState>, id: String) -> AppResult<Character> {
-    let conn = get_conn!(state);
-    character_service::get(&conn, &id)
-}
-
-#[tauri::command]
-pub fn create_character(
-    state: State<AppState>,
+pub async fn create_character(
+    state: State<'_, AppState>,
     project_id: String,
     name: String,
     description: String,
     personality: String,
     background: String,
+    race: String,
+    model_id: Option<String>,
 ) -> AppResult<Character> {
-    let conn = get_conn!(state);
     character_service::create(
-        &conn,
+        &state.db,
         &project_id,
         &name,
         &description,
         &personality,
         &background,
+        &race,
+        model_id.as_deref(),
     )
+    .await
 }
 
 #[tauri::command]
-pub fn update_character(
-    state: State<AppState>,
+pub async fn update_character(
+    state: State<'_, AppState>,
     id: String,
     name: String,
     description: String,
     personality: String,
     background: String,
+    race: String,
+    model_id: Option<String>,
 ) -> AppResult<Character> {
-    let conn = get_conn!(state);
-    character_service::update(&conn, &id, &name, &description, &personality, &background)
+    character_service::update(
+        &state.db,
+        &id,
+        &name,
+        &description,
+        &personality,
+        &background,
+        &race,
+        model_id.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
-pub fn delete_character(state: State<AppState>, id: String) -> AppResult<()> {
-    let conn = get_conn!(state);
-    character_service::delete(&conn, &id)
+pub async fn delete_character(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    character_service::delete(&state.db, &id).await
 }

@@ -7,6 +7,11 @@ import type {
   AiConfig,
   AiAgent,
   StreamChunk,
+  NarrativeSession,
+  NarrativeBeat,
+  NarrativeStreamChunk,
+  CharacterRelation,
+  CharacterFaction,
 } from "./types";
 
 export const projectApi = {
@@ -48,6 +53,8 @@ export const characterApi = {
     description: string,
     personality: string,
     background: string,
+    race: string,
+    modelId?: string | null,
   ) =>
     invoke<Character>("create_character", {
       projectId,
@@ -55,6 +62,8 @@ export const characterApi = {
       description,
       personality,
       background,
+      race,
+      modelId: modelId ?? null,
     }),
   update: (
     id: string,
@@ -62,6 +71,8 @@ export const characterApi = {
     description: string,
     personality: string,
     background: string,
+    race: string,
+    modelId?: string | null,
   ) =>
     invoke<Character>("update_character", {
       id,
@@ -69,6 +80,8 @@ export const characterApi = {
       description,
       personality,
       background,
+      race,
+      modelId: modelId ?? null,
     }),
   delete: (id: string) => invoke<void>("delete_character", { id }),
 };
@@ -141,4 +154,124 @@ export const aiApi = {
     invoke<Array<{ role: string; content: string }>>("get_chat_history", { projectId }),
   clearChatHistory: (projectId: string) =>
     invoke<void>("clear_chat_history", { projectId }),
+};
+
+export const narrativeApi = {
+  listSessions: (projectId: string) =>
+    invoke<NarrativeSession[]>("list_narrative_sessions", { projectId }),
+  getSession: (id: string) =>
+    invoke<NarrativeSession>("get_narrative_session", { id }),
+  createSession: (projectId: string, title: string, scene: string) =>
+    invoke<NarrativeSession>("create_narrative_session", { projectId, title, scene }),
+  deleteSession: (id: string) =>
+    invoke<void>("delete_narrative_session", { id }),
+  listBeats: (sessionId: string) =>
+    invoke<NarrativeBeat[]>("list_narrative_beats", { sessionId }),
+  deleteBeat: (id: string) =>
+    invoke<void>("delete_narrative_beat", { id }),
+  addBeat: (sessionId: string, beatType: string, characterId: string | null, characterName: string, content: string) =>
+    invoke<NarrativeBeat>("add_narrative_beat", {
+      sessionId,
+      beatType,
+      input: { characterId, characterName, content },
+    }),
+  advanceNarration: (
+    sessionId: string,
+    onChunk: (chunk: NarrativeStreamChunk) => void,
+    instruction?: string | null,
+  ): Promise<void> => {
+    const channel = new Channel<NarrativeStreamChunk>(onChunk);
+    return invoke("advance_narration", {
+      sessionId,
+      instruction: instruction ?? null,
+      onChunk: channel,
+    });
+  },
+  invokeCharacter: (
+    sessionId: string,
+    characterId: string,
+    onChunk: (chunk: NarrativeStreamChunk) => void,
+    instruction?: string | null,
+  ): Promise<void> => {
+    const channel = new Channel<NarrativeStreamChunk>(onChunk);
+    return invoke("invoke_narrative_character", {
+      sessionId,
+      characterId,
+      instruction: instruction ?? null,
+      onChunk: channel,
+    });
+  },
+};
+
+export const relationApi = {
+  listRelations: (projectId: string) =>
+    invoke<CharacterRelation[]>("list_character_relations", { projectId }),
+  createRelation: (
+    projectId: string,
+    charAId: string,
+    charBId: string,
+    relationshipType: string,
+    description: string,
+    startChapterId?: string | null,
+    endChapterId?: string | null,
+  ) =>
+    invoke<CharacterRelation>("create_character_relation", {
+      projectId,
+      charAId,
+      charBId,
+      relationshipType,
+      description,
+      startChapterId: startChapterId ?? null,
+      endChapterId: endChapterId ?? null,
+    }),
+  updateRelation: (
+    id: string,
+    relationshipType: string,
+    description: string,
+    startChapterId?: string | null,
+    endChapterId?: string | null,
+  ) =>
+    invoke<CharacterRelation>("update_character_relation", {
+      id,
+      relationshipType,
+      description,
+      startChapterId: startChapterId ?? null,
+      endChapterId: endChapterId ?? null,
+    }),
+  deleteRelation: (id: string) =>
+    invoke<void>("delete_character_relation", { id }),
+  listFactions: (projectId: string) =>
+    invoke<CharacterFaction[]>("list_character_factions", { projectId }),
+  createFaction: (
+    projectId: string,
+    characterId: string,
+    faction: string,
+    role: string,
+    startChapterId?: string | null,
+    endChapterId?: string | null,
+  ) =>
+    invoke<CharacterFaction>("create_character_faction", {
+      projectId,
+      characterId,
+      faction,
+      role,
+      startChapterId: startChapterId ?? null,
+      endChapterId: endChapterId ?? null,
+    }),
+  updateFaction: (
+    id: string,
+    faction: string,
+    role: string,
+    startChapterId?: string | null,
+    endChapterId?: string | null,
+  ) =>
+    invoke<CharacterFaction>("update_character_faction", {
+      id,
+      faction,
+      role,
+      startChapterId: startChapterId ?? null,
+      endChapterId: endChapterId ?? null,
+    }),
+  deleteFaction: (id: string) =>
+    invoke<void>("delete_character_faction", { id }),
 };

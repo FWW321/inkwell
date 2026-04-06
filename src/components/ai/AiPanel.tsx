@@ -11,6 +11,7 @@ import {
   ArrowDownToLine,
   Square,
   X,
+  BookOpen,
 } from "lucide-react";
 
 import { aiApi } from "@/lib/api";
@@ -24,13 +25,15 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAiEditor } from "@/contexts/AiEditorContext";
 import { springs } from "@/lib/motion";
 import type { AiMode } from "@/lib/types";
+import NarrativePanel from "./NarrativePanel";
 
 interface AiPanelProps {
   open: boolean;
   onClose: () => void;
 }
 
-const modes: { key: AiMode; label: string; icon: typeof Sparkles }[] = [
+const modes: { key: AiMode | "narrative"; label: string; icon: typeof Sparkles }[] = [
+  { key: "narrative", label: "推演", icon: BookOpen },
   { key: "polish", label: "润色", icon: Sparkles },
   { key: "rewrite", label: "改写", icon: PenLine },
   { key: "dialogue", label: "对话", icon: MessageSquare },
@@ -416,6 +419,16 @@ const ChatPanel = () => {
 
 const AiPanel = ({ open: _open, onClose }: AiPanelProps) => {
   const { activeMode, setActiveMode, isStreaming } = useAiEditor();
+  const [narrativeMode, setNarrativeMode] = useState(false);
+
+  const handleModeChange = (v: string) => {
+    if (v === "narrative") {
+      setNarrativeMode(true);
+    } else {
+      setNarrativeMode(false);
+      setActiveMode(v as AiMode);
+    }
+  };
 
   return (
     <motion.div
@@ -445,8 +458,8 @@ const AiPanel = ({ open: _open, onClose }: AiPanelProps) => {
       </div>
 
       <Tabs
-        value={activeMode}
-        onValueChange={(v) => setActiveMode(v as AiMode)}
+        value={narrativeMode ? "narrative" : activeMode}
+        onValueChange={handleModeChange}
         className="flex flex-col flex-1 overflow-hidden"
       >
         <div className="border-b border-border px-3 py-1.5 shrink-0">
@@ -460,7 +473,10 @@ const AiPanel = ({ open: _open, onClose }: AiPanelProps) => {
           </TabsList>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-hidden">
+          <TabsContent value="narrative" className="h-full overflow-hidden">
+            <NarrativePanel />
+          </TabsContent>
           <TabsContent value="polish"><PolishPanel /></TabsContent>
           <TabsContent value="rewrite"><RewritePanel /></TabsContent>
           <TabsContent value="dialogue"><DialoguePanel /></TabsContent>

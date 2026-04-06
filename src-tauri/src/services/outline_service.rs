@@ -1,174 +1,158 @@
 use crate::db::models::OutlineNode;
 use crate::error::{AppError, AppResult};
-use rusqlite::{Connection, params};
-use uuid::Uuid;
+use crate::state::Db;
+use surrealdb::types::RecordId;
 
-fn row_to_node(row: &rusqlite::Row) -> rusqlite::Result<OutlineNode> {
-    Ok(OutlineNode {
-        id: row.get(0)?,
-        project_id: row.get(1)?,
-        parent_id: row.get(2)?,
-        node_type: row.get(3)?,
-        title: row.get(4)?,
-        sort_order: row.get(5)?,
-        content_json: row.get(6)?,
-        word_count: row.get(7)?,
-        status: row.get(8)?,
-        diff_original: row.get(9)?,
-        diff_new: row.get(10)?,
-        diff_mode: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
-    })
-}
-
-const SELECT: &str = "SELECT id, project_id, parent_id, node_type, title, sort_order, content_json, word_count, status, diff_original, diff_new, diff_mode, created_at, updated_at FROM outline_nodes";
-
-pub fn list_children(conn: &Connection, project_id: &str, parent_id: Option<&str>) -> AppResult<Vec<OutlineNode>> {
-    let mut stmt = if parent_id.is_some() {
-        conn.prepare(&format!("{SELECT} WHERE project_id = ?1 AND parent_id = ?2 ORDER BY sort_order"))?
+pub async fn list_children(
+    db: &Db,
+    project_id: &str,
+    parent_id: Option<&str>,
+) -> AppResult<Vec<OutlineNode>> {
+    let sql = if parent_id.is_some() {
+        "SELECT * FROM outline_node WHERE project = $pid AND parent = $parent ORDER BY sort_order ASC"
     } else {
-        conn.prepare(&format!("{SELECT} WHERE project_id = ?1 AND parent_id IS NULL ORDER BY sort_order"))?
+        "SELECT * FROM outline_node WHERE project = $pid AND parent IS NONE ORDER BY sort_order ASC"
     };
 
-    let nodes = if parent_id.is_some() {
-        stmt.query_map(params![project_id, parent_id], row_to_node)?
-    } else {
-        stmt.query_map(params![project_id], row_to_node)?
+    let mut q = db.query(sql).bind(("pid", RecordId::new("project", project_id)));
+    if let Some(pid) = parent_id {
+        q = q.bind(("parent", RecordId::new("outline_node", pid)));
     }
-    .collect::<Result<Vec<_>, _>>()?;
-    Ok(nodes)
+
+    q.await?.take::<Vec<OutlineNode>>(0).map_err(Into::into)
 }
 
-pub fn get_node(conn: &Connection, id: &str) -> AppResult<OutlineNode> {
-    conn.query_row(&format!("{SELECT} WHERE id = ?1"), params![id], row_to_node)
-        .map_err(|_| AppError::NotFound(format!("节点 {} 不存在", id)))
+pub async fn get_node(db: &Db, id: &str) -> AppResult<OutlineNode> {
+    db.select(("outline_node", id)).await?
+        .ok_or_else(|| AppError::NotFound(format!("节点 {} 不存在", id)))
 }
 
-pub fn create_node(
-    conn: &Connection,
+pub async fn create_node(
+    db: &Db,
     project_id: &str,
     parent_id: Option<&str>,
     node_type: &str,
     title: &str,
 ) -> AppResult<OutlineNode> {
-    let id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-
     if node_type == "volume" {
         if let Some(pid) = parent_id {
-            let parent = get_node(conn, pid)?;
+            let parent = get_node(db, pid).await?;
             if parent.node_type == "chapter" {
                 return Err(AppError::Validation("章节下不能创建子节点".to_string()));
             }
         }
     }
 
-    let sort_order: i64 = if parent_id.is_some() {
-        conn.query_row(
-            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM outline_nodes WHERE parent_id = ?1",
-            params![parent_id],
-            |row| row.get(0),
-        )?
+    let sort_order: i64 = if let Some(pid) = parent_id {
+        let result: Option<i64> = db.query("SELECT VALUE math::max(sort_order) + 1 FROM outline_node WHERE parent = $parent")
+            .bind(("parent", RecordId::new("outline_node", pid)))
+            .await?.take::<Option<i64>>(0)?;
+        result.unwrap_or(0)
     } else {
-        conn.query_row(
-            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM outline_nodes WHERE project_id = ?1 AND parent_id IS NULL",
-            params![project_id],
-            |row| row.get(0),
-        )?
+        let result: Option<i64> = db.query("SELECT VALUE math::max(sort_order) + 1 FROM outline_node WHERE project = $pid AND parent IS NONE")
+            .bind(("pid", RecordId::new("project", project_id)))
+            .await?.take::<Option<i64>>(0)?;
+        result.unwrap_or(0)
     };
 
-    conn.execute(
-        "INSERT INTO outline_nodes (id, project_id, parent_id, node_type, title, sort_order, content_json, word_count, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', 0, 'draft', ?7, ?7)",
-        params![id, project_id, parent_id, node_type, title, sort_order, now],
-    )?;
+    let has_parent = parent_id.is_some();
 
-    Ok(OutlineNode {
-        id,
-        project_id: project_id.to_string(),
-        parent_id: parent_id.map(|s| s.to_string()),
-        node_type: node_type.to_string(),
-        title: title.to_string(),
-        sort_order,
-        content_json: "[]".to_string(),
-        word_count: 0,
-        status: "draft".to_string(),
-        diff_original: None,
-        diff_new: None,
-        diff_mode: None,
-        created_at: now.clone(),
-        updated_at: now,
-    })
+    let mut q = db.query(
+        "CREATE outline_node CONTENT { \
+         project: type::record('project', $pid), \
+         parent: if $has_parent { type::record('outline_node', $parent) } else { NONE }, \
+         node_type: $node_type, \
+         title: $title, \
+         sort_order: $sort_order, \
+         word_count: 0, \
+         status: 'draft' \
+         }"
+    )
+    .bind(("pid", project_id.to_string()))
+    .bind(("has_parent", has_parent))
+    .bind(("node_type", node_type.to_string()))
+    .bind(("title", title.to_string()))
+    .bind(("sort_order", sort_order));
+    if let Some(pid) = parent_id {
+        q = q.bind(("parent", pid.to_string()));
+    }
+
+    q.await?.take::<Option<OutlineNode>>(0)?
+        .ok_or_else(|| AppError::Internal("create outline_node failed".into()))
 }
 
-pub fn update_node(
-    conn: &Connection,
+pub async fn update_node(
+    db: &Db,
     id: &str,
     title: &str,
-    content_json: &str,
+    content_json: serde_json::Value,
     word_count: i64,
     status: &str,
 ) -> AppResult<OutlineNode> {
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "UPDATE outline_nodes SET title = ?1, content_json = ?2, word_count = ?3, status = ?4, updated_at = ?5 WHERE id = ?6",
-        params![title, content_json, word_count, status, now, id],
-    )?;
-    get_node(conn, id)
+    db.query("UPDATE type::record($id) SET title = $title, content_json = $content_json, word_count = $word_count, status = $status, updated_at = time::now()")
+        .bind(("id", RecordId::new("outline_node", id)))
+        .bind(("title", title.to_string()))
+        .bind(("content_json", content_json))
+        .bind(("word_count", word_count))
+        .bind(("status", status.to_string()))
+        .await?;
+
+    get_node(db, id).await
 }
 
-pub fn rename_node(conn: &Connection, id: &str, title: &str) -> AppResult<OutlineNode> {
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "UPDATE outline_nodes SET title = ?1, updated_at = ?2 WHERE id = ?3",
-        params![title, now, id],
-    )?;
-    get_node(conn, id)
+pub async fn rename_node(db: &Db, id: &str, title: &str) -> AppResult<OutlineNode> {
+    db.query("UPDATE type::record($id) SET title = $title, updated_at = time::now()")
+        .bind(("id", RecordId::new("outline_node", id)))
+        .bind(("title", title.to_string()))
+        .await?;
+
+    get_node(db, id).await
 }
 
-pub fn delete_node(conn: &Connection, id: &str) -> AppResult<()> {
-    let rows = conn.execute("DELETE FROM outline_nodes WHERE id = ?1", params![id])?;
-    if rows == 0 {
+pub async fn delete_node(db: &Db, id: &str) -> AppResult<()> {
+    let deleted: Option<OutlineNode> = db.delete(("outline_node", id)).await?;
+    if deleted.is_none() {
         return Err(AppError::NotFound(format!("节点 {} 不存在", id)));
     }
     Ok(())
 }
 
-pub fn reorder_nodes(
-    conn: &Connection,
-    project_id: &str,
-    parent_id: Option<&str>,
+pub async fn reorder_nodes(
+    db: &Db,
+    _project_id: &str,
+    _parent_id: Option<&str>,
     node_ids: &[String],
 ) -> AppResult<()> {
-    for (i, nid) in node_ids.iter().enumerate() {
-        conn.execute(
-            "UPDATE outline_nodes SET sort_order = ?1 WHERE id = ?2 AND project_id = ?3 AND COALESCE(parent_id, '') = COALESCE(?4, '')",
-            params![i as i64, nid, project_id, parent_id],
-        )?;
-    }
+    let items: Vec<(String, i64)> = node_ids
+        .iter()
+        .enumerate()
+        .map(|(i, nid)| (nid.clone(), i as i64))
+        .collect();
+    db.query("FOR $item IN $items { UPDATE type::record('outline_node', $item[0]) SET sort_order = $item[1] }")
+        .bind(("items", items))
+        .await?;
     Ok(())
 }
 
-pub fn save_diff(
-    conn: &Connection,
+pub async fn save_diff(
+    db: &Db,
     id: &str,
     original_text: &str,
     new_text: &str,
     mode: &str,
 ) -> AppResult<()> {
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "UPDATE outline_nodes SET diff_original = ?1, diff_new = ?2, diff_mode = ?3, updated_at = ?4 WHERE id = ?5",
-        params![original_text, new_text, mode, now, id],
-    )?;
+    db.query("UPDATE type::record($id) SET diff_original = $orig, diff_new = $new, diff_mode = $mode, updated_at = time::now()")
+        .bind(("id", RecordId::new("outline_node", id)))
+        .bind(("orig", original_text.to_string()))
+        .bind(("new", new_text.to_string()))
+        .bind(("mode", mode.to_string()))
+        .await?;
     Ok(())
 }
 
-pub fn clear_diff(conn: &Connection, id: &str) -> AppResult<()> {
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "UPDATE outline_nodes SET diff_original = NULL, diff_new = NULL, diff_mode = NULL, updated_at = ?1 WHERE id = ?2",
-        params![now, id],
-    )?;
+pub async fn clear_diff(db: &Db, id: &str) -> AppResult<()> {
+    db.query("UPDATE type::record($id) SET diff_original = NONE, diff_new = NONE, diff_mode = NONE, updated_at = time::now()")
+        .bind(("id", RecordId::new("outline_node", id)))
+        .await?;
     Ok(())
 }

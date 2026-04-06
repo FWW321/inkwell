@@ -1,6 +1,6 @@
-use rusqlite::{Connection, params};
-
 use crate::error::AppResult;
+use crate::state::Db;
+use surrealdb::types::{RecordId, SurrealValue};
 
 pub struct ProjectContext {
     pub project_title: String,
@@ -10,24 +10,25 @@ pub struct ProjectContext {
     pub adjacent_chapters: String,
 }
 
-pub fn build_project_context(
-    conn: &Connection,
+pub async fn build_project_context(
+    db: &Db,
     project_id: &str,
     chapter_id: Option<&str>,
 ) -> AppResult<ProjectContext> {
-    let project_title = conn
-        .query_row("SELECT title FROM projects WHERE id = ?1", params![project_id], |row| {
-            row.get::<_, String>(0)
-        })
-        .unwrap_or_default();
+    let project_title: Option<String> = db
+        .query("SELECT VALUE title FROM project WHERE id = $pid")
+        .bind(("pid", RecordId::new("project", project_id)))
+        .await?
+        .take::<Option<String>>(0)?;
+    let project_title = project_title.unwrap_or_default();
 
-    let characters_summary = build_characters_summary(conn, project_id)?;
-    let worldview_summary = build_worldview_summary(conn, project_id)?;
+    let characters_summary = build_characters_summary(db, project_id).await?;
+    let worldview_summary = build_worldview_summary(db, project_id).await?;
 
     let (chapter_title, adjacent_chapters) = match chapter_id {
         Some(cid) => (
-            get_chapter_title(conn, cid)?,
-            get_adjacent_chapters(conn, project_id, cid)?,
+            get_chapter_title(db, cid).await?,
+            get_adjacent_chapters(db, project_id, cid).await?,
         ),
         None => (None, String::new()),
     };
@@ -114,101 +115,93 @@ pub fn format_system_prompt(ctx: &ProjectContext, mode: &str) -> String {
     parts.join("\n\n")
 }
 
-fn build_characters_summary(conn: &Connection, project_id: &str) -> AppResult<String> {
-    let mut stmt = conn.prepare(
-        "SELECT name, personality, description FROM characters WHERE project_id = ?1 ORDER BY name",
-    )?;
+async fn build_characters_summary(db: &Db, project_id: &str) -> AppResult<String> {
+    #[derive(Debug, Clone, SurrealValue)]
+    struct CharRow {
+        name: String,
+        personality: String,
+        description: String,
+    }
 
-    let chars: Vec<String> = stmt
-        .query_map(params![project_id], |row| {
-            let name: String = row.get(0)?;
-            let personality: String = row.get(1)?;
-            let description: String = row.get(2)?;
-            Ok((name, personality, description))
-        })?
-        .filter_map(|r| r.ok())
-        .map(|(name, personality, description)| {
-            let mut info = format!("- {}：{}", name, personality);
-            if !description.is_empty() {
-                info.push_str(&format!("（{}）", description));
+    let chars: Vec<CharRow> = db
+        .query("SELECT name, personality, description FROM character WHERE project = $pid ORDER BY name")
+        .bind(("pid", RecordId::new("project", project_id)))
+        .await?
+        .take::<Vec<CharRow>>(0)?;
+
+    let lines: Vec<String> = chars
+        .iter()
+        .map(|c| {
+            let mut info = format!("- {}：{}", c.name, c.personality);
+            if !c.description.is_empty() {
+                info.push_str(&format!("（{}）", c.description));
             }
             info
         })
         .collect();
 
-    Ok(chars.join("\n"))
+    Ok(lines.join("\n"))
 }
 
-fn build_worldview_summary(conn: &Connection, project_id: &str) -> AppResult<String> {
-    let mut stmt = conn.prepare(
-        "SELECT category, title, content FROM worldview_entries WHERE project_id = ?1 ORDER BY category, title",
-    )?;
+pub async fn build_worldview_summary(db: &Db, project_id: &str) -> AppResult<String> {
+    #[derive(Debug, Clone, SurrealValue)]
+    struct WvRow {
+        category: String,
+        title: String,
+        content: String,
+    }
 
-    let entries: Vec<String> = stmt
-        .query_map(params![project_id], |row| {
-            let category: String = row.get(0)?;
-            let title: String = row.get(1)?;
-            let content: String = row.get(2)?;
-            Ok((category, title, content))
-        })?
-        .filter_map(|r| r.ok())
-        .map(|(category, title, content)| {
-            if content.is_empty() {
-                format!("- [{}] {}", category, title)
+    let entries: Vec<WvRow> = db
+        .query("SELECT category, title, content FROM worldview_entry WHERE project = $pid ORDER BY category, title")
+        .bind(("pid", RecordId::new("project", project_id)))
+        .await?
+        .take::<Vec<WvRow>>(0)?;
+
+    let lines: Vec<String> = entries
+        .iter()
+        .map(|e| {
+            if e.content.is_empty() {
+                format!("- [{}] {}", e.category, e.title)
             } else {
-                format!("- [{}] {}：{}", category, title, content)
+                format!("- [{}] {}：{}", e.category, e.title, e.content)
             }
         })
         .collect();
 
-    Ok(entries.join("\n"))
+    Ok(lines.join("\n"))
 }
 
-fn get_chapter_title(conn: &Connection, chapter_id: &str) -> AppResult<Option<String>> {
-    let result = conn.query_row(
-        "SELECT title FROM outline_nodes WHERE id = ?1",
-        params![chapter_id],
-        |row| row.get::<_, String>(0),
-    );
+async fn get_chapter_title(db: &Db, chapter_id: &str) -> AppResult<Option<String>> {
+    let result: Option<String> = db
+        .query("SELECT VALUE title FROM outline_node WHERE id = $id")
+        .bind(("id", RecordId::new("outline_node", chapter_id)))
+        .await?
+        .take::<Option<String>>(0)?;
 
-    match result {
-        Ok(title) => Ok(Some(title)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
+    Ok(result)
 }
 
-fn get_adjacent_chapters(
-    conn: &Connection,
+async fn get_adjacent_chapters(
+    db: &Db,
     project_id: &str,
-    chapter_id: &str,
+    _chapter_id: &str,
 ) -> AppResult<String> {
-    let current: Option<(i64, Option<String>)> = conn
-        .query_row(
-            "SELECT sort_order, parent_id FROM outline_nodes WHERE id = ?1",
-            params![chapter_id],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+    #[derive(Debug, Clone, SurrealValue)]
+    struct ChapterRow {
+        title: String,
+    }
+
+    let chapters: Vec<ChapterRow> = db
+        .query(
+             "SELECT title, sort_order FROM outline_node \
+              WHERE project = $pid AND node_type = 'chapter' \
+              ORDER BY sort_order \
+             LIMIT 10"
         )
-        .ok();
+        .bind(("pid", RecordId::new("project", project_id)))
+        .await?
+        .take::<Vec<ChapterRow>>(0)?;
 
-    let (_sort_order, parent_id) = match current {
-        Some((s, p)) => (s, p),
-        None => return Ok(String::new()),
-    };
-
-    let mut stmt = conn.prepare(
-        "SELECT title, node_type FROM outline_nodes WHERE project_id = ?1 AND (parent_id IS ?2 OR parent_id = ?2) AND node_type = 'chapter' ORDER BY sort_order LIMIT 10",
-    )?;
-
-    let chapters: Vec<String> = stmt
-        .query_map(params![project_id, parent_id], |row| {
-            let title: String = row.get(0)?;
-            let node_type: String = row.get(1)?;
-            Ok((title, node_type))
-        })?
-        .filter_map(|r| r.ok())
-        .map(|(title, _)| title)
-        .collect();
-
-    Ok(chapters.join(" → "))
+    let titles: Vec<String> = chapters.into_iter().map(|c| c.title).collect();
+    Ok(titles.join(" → "))
 }
