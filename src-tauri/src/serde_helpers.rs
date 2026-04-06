@@ -1,4 +1,4 @@
-use serde::Serializer;
+use serde::{Deserialize, Deserializer, Serializer};
 use surrealdb::types::{RecordId, RecordIdKey};
 
 pub mod rid {
@@ -12,6 +12,11 @@ pub mod rid {
             _ => s.serialize_str(&format!("{:?}", rid.key)),
         }
     }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<RecordId, D::Error> {
+        let key_str: String = Deserialize::deserialize(d)?;
+        Ok(RecordId::new("placeholder", key_str.as_str()))
+    }
 }
 
 pub mod opt_rid {
@@ -22,5 +27,10 @@ pub mod opt_rid {
             Some(r) => rid::serialize(r, s),
             None => s.serialize_none(),
         }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<RecordId>, D::Error> {
+        let opt: Option<String> = Deserialize::deserialize(d)?;
+        Ok(opt.map(|k| RecordId::new("placeholder", k.as_str())))
     }
 }

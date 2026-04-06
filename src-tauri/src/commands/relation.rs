@@ -1,6 +1,4 @@
-use crate::db::models::{
-    CharacterFaction, CharacterFactionWithNames, CharacterRelation, CharacterRelationWithNames,
-};
+use crate::db::models::{CharacterFaction, CharacterRelation};
 use crate::error::AppResult;
 use crate::services::relation_service;
 use crate::state::AppState;
@@ -10,7 +8,7 @@ use tauri::State;
 pub async fn list_character_relations(
     state: State<'_, AppState>,
     project_id: String,
-) -> AppResult<Vec<CharacterRelationWithNames>> {
+) -> AppResult<Vec<CharacterRelation>> {
     relation_service::list_relations(&state.db, &project_id).await
 }
 
@@ -70,7 +68,7 @@ pub async fn delete_character_relation(
 pub async fn list_character_factions(
     state: State<'_, AppState>,
     project_id: String,
-) -> AppResult<Vec<CharacterFactionWithNames>> {
+) -> AppResult<Vec<CharacterFaction>> {
     relation_service::list_factions(&state.db, &project_id).await
 }
 

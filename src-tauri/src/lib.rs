@@ -77,6 +77,7 @@ pub fn run() {
                 commands::narrative::create_narrative_session,
                 commands::narrative::delete_narrative_session,
                 commands::narrative::list_narrative_beats,
+                commands::narrative::list_narrative_events,
                 commands::narrative::delete_narrative_beat,
                 commands::narrative::add_narrative_beat,
                 commands::narrative::advance_narration,
@@ -89,6 +90,8 @@ pub fn run() {
                 commands::relation::create_character_faction,
                 commands::relation::update_character_faction,
                 commands::relation::delete_character_faction,
+                commands::review::review_beat,
+                commands::review::list_writing_reviews,
             ])
             .run(tauri::generate_context!())
             .expect("error while running tauri application");

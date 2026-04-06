@@ -5,7 +5,6 @@ use tauri::ipc::Channel;
 
 use crate::db::models::{AiAgent, AiAgentWithModelName, AiConfig};
 use crate::error::{AppError, AppResult};
-use crate::services::context_service;
 use crate::state::Db;
 use surrealdb::types::{RecordId, SurrealValue, ToSql, Value};
 
@@ -120,15 +119,14 @@ pub async fn get_model(db: &Db, id: &str) -> AppResult<AiConfig> {
 }
 
 pub async fn list_agents(db: &Db) -> AppResult<Vec<AiAgentWithModelName>> {
-    db.query("SELECT *, model.name AS model_name FROM ai_agent ORDER BY is_default DESC, created_at ASC")
-        .await?.take::<Vec<AiAgentWithModelName>>(0).map_err(Into::into)
+    db.query("SELECT id, name, record::id(model) AS model_id, model.name AS model_name, system_prompt, is_default, created_at FROM ai_agent ORDER BY is_default DESC, created_at ASC FETCH model")
+        .await?.check()?.take::<Vec<AiAgentWithModelName>>(0).map_err(Into::into)
 }
 
 pub async fn get_default_agent(db: &Db) -> AppResult<AiAgentWithModelName> {
     let result: Option<AiAgentWithModelName> = db
-        .query("SELECT *, model.name AS model_name FROM ai_agent WHERE is_default = true LIMIT 1")
-        .await?
-        .take::<Option<AiAgentWithModelName>>(0)?;
+        .query("SELECT id, name, record::id(model) AS model_id, model.name AS model_name, system_prompt, is_default, created_at FROM ai_agent WHERE is_default = true LIMIT 1 FETCH model")
+        .await?.check()?.take::<Option<AiAgentWithModelName>>(0)?;
 
     match result {
         Some(a) => Ok(a),
@@ -141,10 +139,9 @@ pub async fn get_default_agent(db: &Db) -> AppResult<AiAgentWithModelName> {
 
 async fn get_agent(db: &Db, id: &str) -> AppResult<AiAgentWithModelName> {
     let records: Vec<AiAgentWithModelName> = db
-        .query("SELECT *, model.name AS model_name FROM ai_agent WHERE id = $id")
+        .query("SELECT id, name, record::id(model) AS model_id, model.name AS model_name, system_prompt, is_default, created_at FROM ai_agent WHERE id = $id FETCH model")
         .bind(("id", RecordId::new("ai_agent", id)))
-        .await?
-        .take::<Vec<AiAgentWithModelName>>(0)?;
+        .await?.check()?.take::<Vec<AiAgentWithModelName>>(0)?;
     records.into_iter().next()
         .ok_or_else(|| AppError::NotFound("助手不存在".to_string()))
 }
@@ -156,8 +153,9 @@ pub async fn create_agent(
     system_prompt: &str,
 ) -> AppResult<AiAgentWithModelName> {
     let count: Option<i64> = db
-        .query("SELECT VALUE count() FROM ai_agent")
+        .query("SELECT VALUE count() FROM [SELECT * FROM ai_agent]")
         .await?
+        .check()?
         .take::<Option<i64>>(0)?;
     let is_default = count.map(|c| c == 0).unwrap_or(true);
 
@@ -251,8 +249,9 @@ pub async fn create_model(
     base_url: &str,
 ) -> AppResult<AiConfig> {
     let count: Option<i64> = db
-        .query("SELECT VALUE count() FROM ai_model")
+        .query("SELECT VALUE count() FROM [SELECT * FROM ai_model]")
         .await?
+        .check()?
         .take::<Option<i64>>(0)?;
     let is_default = count.map(|c| c == 0).unwrap_or(true);
 
@@ -613,9 +612,9 @@ pub async fn ai_stream_with_context(
     length: Option<&str>,
     on_chunk: &Channel<StreamChunk>,
 ) -> AppResult<()> {
-    let ctx = context_service::build_project_context(db, project_id, chapter_id).await?;
+    let contract = super::context_service::build_contract(db, project_id, "").await?;
 
-    let mut preamble = context_service::format_system_prompt(&ctx, mode);
+    let mut preamble = super::context_service::format_editor_system_prompt(&contract, mode);
 
     if let Some(s) = style {
         preamble.push_str(&format!("\n\n用户期望的写作风格：{}。", s));

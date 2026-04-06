@@ -106,6 +106,7 @@ export interface NarrativeSession {
   scene: string;
   atmosphere: string;
   timeline_id: string;
+  strand: "quest" | "fire" | "constellation";
   status: string;
   created_at: string;
   updated_at: string;
@@ -121,12 +122,29 @@ export interface NarrativeBeat {
   metadata: Record<string, unknown>;
   sort_order: number;
   timeline_id: string;
+  strand: "quest" | "fire" | "constellation";
+  hook_type?: string | null;
+  hook_strength?: string | null;
+  micro_payoffs: unknown[];
+  created_at: string;
+}
+
+export interface NarrativeEvent {
+  id: string;
+  beat_id: string;
+  session_id: string;
+  event_type: string;
+  character_id: string | null;
+  character_name: string;
+  summary: string;
+  detail: Record<string, unknown>;
   created_at: string;
 }
 
 export interface NarrativeStreamChunk {
   beat_id: string;
   beat_type: string;
+  strand: string;
   character_id: string | null;
   character_name: string;
   text: string;
@@ -162,4 +180,36 @@ export interface CharacterFaction {
   end_chapter_id: string | null;
   end_chapter_title: string | null;
   created_at: string;
+}
+
+export type Strand = "quest" | "fire" | "constellation";
+
+export interface WritingReview {
+  id: string;
+  session_id: string;
+  beat_id: string;
+  dimension: string;
+  score: number;
+  passed: boolean;
+  issues: ReviewIssue[];
+  summary: string;
+  created_at: string;
+}
+
+export interface ReviewIssue {
+  severity: "high" | "medium" | "low";
+  description: string;
+  suggestion: string;
+}
+
+export interface AggregateReview {
+  dimensions: {
+    dimension: string;
+    score: number;
+    passed: boolean;
+    issues: ReviewIssue[];
+    summary: string;
+  }[];
+  overall_score: number;
+  passed: boolean;
 }

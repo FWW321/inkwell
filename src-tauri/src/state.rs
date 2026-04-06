@@ -110,6 +110,7 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE FIELD scene ON narrative_session TYPE string DEFAULT '';
         DEFINE FIELD atmosphere ON narrative_session TYPE string DEFAULT '';
         DEFINE FIELD timeline_id ON narrative_session TYPE string DEFAULT 'main';
+        DEFINE FIELD strand ON narrative_session TYPE string DEFAULT 'quest';
         DEFINE FIELD status ON narrative_session TYPE string DEFAULT 'active';
         DEFINE FIELD created_at ON narrative_session TYPE datetime DEFAULT time::now();
         DEFINE FIELD updated_at ON narrative_session TYPE datetime DEFAULT time::now();
@@ -125,7 +126,34 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE FIELD metadata ON narrative_beat TYPE any DEFAULT {};
         DEFINE FIELD sort_order ON narrative_beat TYPE int DEFAULT 0;
         DEFINE FIELD timeline_id ON narrative_beat TYPE string DEFAULT 'main';
+        DEFINE FIELD strand ON narrative_beat TYPE string DEFAULT 'quest';
+        DEFINE FIELD hook_type ON narrative_beat TYPE option<string>;
+        DEFINE FIELD hook_strength ON narrative_beat TYPE option<string>;
+        DEFINE FIELD micro_payoffs ON narrative_beat TYPE any DEFAULT [];
         DEFINE FIELD created_at ON narrative_beat TYPE datetime DEFAULT time::now();
+
+        DEFINE TABLE narrative_event SCHEMAFULL;
+        DEFINE FIELD beat ON narrative_event TYPE record<narrative_beat>;
+        DEFINE INDEX idx_narrative_event_beat ON narrative_event FIELDS beat;
+        DEFINE FIELD session ON narrative_event TYPE record<narrative_session>;
+        DEFINE INDEX idx_narrative_event_session ON narrative_event FIELDS session;
+        DEFINE FIELD event_type ON narrative_event TYPE string;
+        DEFINE FIELD character ON narrative_event TYPE option<record<character>>;
+        DEFINE FIELD character_name ON narrative_event TYPE string DEFAULT '';
+        DEFINE FIELD summary ON narrative_event TYPE string DEFAULT '';
+        DEFINE FIELD detail ON narrative_event TYPE any DEFAULT {};
+        DEFINE FIELD created_at ON narrative_event TYPE datetime DEFAULT time::now();
+
+        DEFINE TABLE writing_review SCHEMAFULL;
+        DEFINE FIELD session ON writing_review TYPE record<narrative_session>;
+        DEFINE INDEX idx_writing_review_session ON writing_review FIELDS session;
+        DEFINE FIELD beat ON writing_review TYPE record<narrative_beat>;
+        DEFINE FIELD dimension ON writing_review TYPE string;
+        DEFINE FIELD score ON writing_review TYPE float DEFAULT 0.0;
+        DEFINE FIELD passed ON writing_review TYPE bool DEFAULT true;
+        DEFINE FIELD issues ON writing_review TYPE any DEFAULT [];
+        DEFINE FIELD summary ON writing_review TYPE string DEFAULT '';
+        DEFINE FIELD created_at ON writing_review TYPE datetime DEFAULT time::now();
 
         DEFINE TABLE faction SCHEMAFULL;
         DEFINE FIELD project ON faction TYPE record<project>;

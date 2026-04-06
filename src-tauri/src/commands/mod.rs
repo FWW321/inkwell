@@ -4,4 +4,5 @@ pub mod outline;
 pub mod character;
 pub mod relation;
 pub mod project;
+pub mod review;
 pub mod worldview;

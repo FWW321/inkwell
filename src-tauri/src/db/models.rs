@@ -1,6 +1,5 @@
-use surrealdb::types::{Datetime, RecordId, SurrealValue};
-
 use crate::serde_helpers::{opt_rid, rid};
+use surrealdb::types::{Datetime, RecordId, SurrealValue};
 
 #[derive(Debug, Clone, SurrealValue, serde::Serialize)]
 pub struct Project {
@@ -138,14 +137,11 @@ pub struct AiAgentWithModelName {
     #[serde(with = "rid")]
     pub id: RecordId,
     pub name: String,
-    #[serde(rename = "model_id", with = "rid")]
-    pub model: RecordId,
+    pub model_id: String,
     pub system_prompt: String,
     pub is_default: bool,
     pub created_at: Datetime,
-    #[serde(rename = "model_id")]
-    pub model_id: String,
-    #[serde(rename = "model_name")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model_name: Option<String>,
 }
 
@@ -159,6 +155,7 @@ pub struct NarrativeSession {
     pub scene: String,
     pub atmosphere: String,
     pub timeline_id: String,
+    pub strand: String,
     pub status: String,
     pub created_at: Datetime,
     pub updated_at: Datetime,
@@ -178,17 +175,56 @@ pub struct NarrativeBeat {
     pub metadata: serde_json::Value,
     pub sort_order: i64,
     pub timeline_id: String,
+    pub strand: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_strength: Option<String>,
+    pub micro_payoffs: serde_json::Value,
     pub created_at: Datetime,
 }
 
 #[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+pub struct NarrativeEvent {
+    #[serde(with = "rid")]
+    pub id: RecordId,
+    #[serde(rename = "beat_id", with = "rid")]
+    pub beat: RecordId,
+    #[serde(rename = "session_id", with = "rid")]
+    pub session: RecordId,
+    pub event_type: String,
+    #[serde(rename = "character_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
+    pub character: Option<RecordId>,
+    pub character_name: String,
+    pub summary: String,
+    pub detail: serde_json::Value,
+    pub created_at: Datetime,
+}
+
+#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+pub struct WritingReview {
+    #[serde(with = "rid")]
+    pub id: RecordId,
+    #[serde(rename = "session_id", with = "rid")]
+    pub session: RecordId,
+    #[serde(rename = "beat_id", with = "rid")]
+    pub beat: RecordId,
+    pub dimension: String,
+    pub score: f32,
+    pub passed: bool,
+    pub issues: serde_json::Value,
+    pub summary: String,
+    pub created_at: Datetime,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct CharacterState {
     #[serde(with = "rid")]
     pub id: RecordId,
     #[serde(rename = "character_id", with = "rid")]
-    pub r#in: RecordId,
+    pub character_id: RecordId,
     #[serde(rename = "beat_id", with = "rid")]
-    pub r#out: RecordId,
+    pub beat_id: RecordId,
     pub emotion: String,
     pub location: String,
     pub knowledge: String,
@@ -202,32 +238,9 @@ pub struct CharacterRelation {
     pub id: RecordId,
     #[serde(rename = "project_id", with = "rid")]
     pub project: RecordId,
-    #[serde(rename = "char_a_id", with = "rid")]
-    pub r#in: RecordId,
-    #[serde(rename = "char_b_id", with = "rid")]
-    pub r#out: RecordId,
-    pub relationship_type: String,
-    pub description: String,
-    #[serde(rename = "start_chapter_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
-    pub start_chapter: Option<RecordId>,
-    #[serde(rename = "end_chapter_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
-    pub end_chapter: Option<RecordId>,
-    pub created_at: Datetime,
-}
-
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
-pub struct CharacterRelationWithNames {
-    #[serde(with = "rid")]
-    pub id: RecordId,
-    #[serde(rename = "project_id", with = "rid")]
-    pub project: RecordId,
-    #[serde(rename = "char_a_id")]
     pub char_a_id: String,
-    #[serde(rename = "char_a_name")]
     pub char_a_name: Option<String>,
-    #[serde(rename = "char_b_id")]
     pub char_b_id: String,
-    #[serde(rename = "char_b_name")]
     pub char_b_name: Option<String>,
     pub relationship_type: String,
     pub description: String,
@@ -248,31 +261,9 @@ pub struct CharacterFaction {
     pub id: RecordId,
     #[serde(rename = "project_id", with = "rid")]
     pub project: RecordId,
-    #[serde(rename = "character_id", with = "rid")]
-    pub r#in: RecordId,
-    #[serde(rename = "faction_id", with = "rid")]
-    pub r#out: RecordId,
-    pub role: String,
-    #[serde(rename = "start_chapter_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
-    pub start_chapter: Option<RecordId>,
-    #[serde(rename = "end_chapter_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
-    pub end_chapter: Option<RecordId>,
-    pub created_at: Datetime,
-}
-
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
-pub struct CharacterFactionWithNames {
-    #[serde(with = "rid")]
-    pub id: RecordId,
-    #[serde(rename = "project_id", with = "rid")]
-    pub project: RecordId,
-    #[serde(rename = "character_id")]
     pub character_id: String,
-    #[serde(rename = "character_name")]
     pub character_name: Option<String>,
-    #[serde(rename = "faction_id")]
     pub faction_id: String,
-    #[serde(rename = "faction_name")]
     pub faction_name: Option<String>,
     pub role: String,
     #[serde(rename = "start_chapter_id", skip_serializing_if = "Option::is_none")]

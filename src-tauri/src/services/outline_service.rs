@@ -19,7 +19,7 @@ pub async fn list_children(
         q = q.bind(("parent", RecordId::new("outline_node", pid)));
     }
 
-    q.await?.take::<Vec<OutlineNode>>(0).map_err(Into::into)
+    q.await?.check()?.take::<Vec<OutlineNode>>(0).map_err(Into::into)
 }
 
 pub async fn get_node(db: &Db, id: &str) -> AppResult<OutlineNode> {
@@ -44,15 +44,15 @@ pub async fn create_node(
     }
 
     let sort_order: i64 = if let Some(pid) = parent_id {
-        let result: Option<i64> = db.query("SELECT VALUE math::max(sort_order) + 1 FROM outline_node WHERE parent = $parent")
+        let result: Option<i64> = db.query("SELECT VALUE sort_order FROM outline_node WHERE parent = $parent ORDER BY sort_order DESC LIMIT 1")
             .bind(("parent", RecordId::new("outline_node", pid)))
-            .await?.take::<Option<i64>>(0)?;
-        result.unwrap_or(0)
+            .await?.check()?.take::<Option<i64>>(0)?;
+        result.map(|v| v + 1).unwrap_or(0)
     } else {
-        let result: Option<i64> = db.query("SELECT VALUE math::max(sort_order) + 1 FROM outline_node WHERE project = $pid AND parent IS NONE")
+        let result: Option<i64> = db.query("SELECT VALUE sort_order FROM outline_node WHERE project = $pid AND parent IS NONE ORDER BY sort_order DESC LIMIT 1")
             .bind(("pid", RecordId::new("project", project_id)))
-            .await?.take::<Option<i64>>(0)?;
-        result.unwrap_or(0)
+            .await?.check()?.take::<Option<i64>>(0)?;
+        result.map(|v| v + 1).unwrap_or(0)
     };
 
     let has_parent = parent_id.is_some();
@@ -77,7 +77,7 @@ pub async fn create_node(
         q = q.bind(("parent", pid.to_string()));
     }
 
-    q.await?.take::<Option<OutlineNode>>(0)?
+    q.await?.check()?.take::<Option<OutlineNode>>(0)?
         .ok_or_else(|| AppError::Internal("create outline_node failed".into()))
 }
 

@@ -9,9 +9,12 @@ import type {
   StreamChunk,
   NarrativeSession,
   NarrativeBeat,
+  NarrativeEvent,
   NarrativeStreamChunk,
   CharacterRelation,
   CharacterFaction,
+  AggregateReview,
+  WritingReview,
 } from "./types";
 
 export const projectApi = {
@@ -167,13 +170,22 @@ export const narrativeApi = {
     invoke<void>("delete_narrative_session", { id }),
   listBeats: (sessionId: string) =>
     invoke<NarrativeBeat[]>("list_narrative_beats", { sessionId }),
+  listEvents: (sessionId: string) =>
+    invoke<NarrativeEvent[]>("list_narrative_events", { sessionId }),
   deleteBeat: (id: string) =>
     invoke<void>("delete_narrative_beat", { id }),
-  addBeat: (sessionId: string, beatType: string, characterId: string | null, characterName: string, content: string) =>
+  addBeat: (
+    sessionId: string,
+    beatType: string,
+    characterId: string | null,
+    characterName: string,
+    content: string,
+    strand?: string | null,
+  ) =>
     invoke<NarrativeBeat>("add_narrative_beat", {
       sessionId,
       beatType,
-      input: { characterId, characterName, content },
+      input: { characterId, characterName, content, strand },
     }),
   advanceNarration: (
     sessionId: string,
@@ -274,4 +286,21 @@ export const relationApi = {
     }),
   deleteFaction: (id: string) =>
     invoke<void>("delete_character_faction", { id }),
+};
+
+export const reviewApi = {
+  reviewBeat: (
+    sessionId: string,
+    beatId: string,
+    beatContent: string,
+    beatType: string,
+  ) =>
+    invoke<AggregateReview>("review_beat", {
+      sessionId,
+      beatId,
+      beatContent,
+      beatType,
+    }),
+  listReviews: (sessionId: string) =>
+    invoke<WritingReview[]>("list_writing_reviews", { sessionId }),
 };

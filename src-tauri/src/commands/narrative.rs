@@ -1,4 +1,4 @@
-use crate::db::models::{NarrativeBeat, NarrativeSession};
+use crate::db::models::{NarrativeBeat, NarrativeEvent, NarrativeSession};
 use crate::error::AppResult;
 use crate::services::narrative_service;
 use crate::state::AppState;
@@ -47,6 +47,14 @@ pub async fn list_narrative_beats(
     session_id: String,
 ) -> AppResult<Vec<NarrativeBeat>> {
     narrative_service::list_beats(&state.db, &session_id).await
+}
+
+#[tauri::command]
+pub async fn list_narrative_events(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> AppResult<Vec<NarrativeEvent>> {
+    narrative_service::list_events(&state.db, &session_id).await
 }
 
 #[tauri::command]
