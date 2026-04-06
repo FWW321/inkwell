@@ -98,7 +98,7 @@ const AgentCard = ({
           )}
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground/60 truncate">
-          模型: {agent.model_name ?? "未知"}
+          模型: {agent.model_name ?? (agent.model_id ? "未知" : "使用默认模型")} · temperature: {agent.temperature}
         </p>
         {agent.system_prompt && (
           <p className="mt-0.5 text-[11px] text-muted-foreground/40 truncate">{agent.system_prompt}</p>
@@ -256,7 +256,7 @@ const ModelForm = ({
   onCancel: () => void;
 }) => {
   const [name, setName] = useState(initial?.name ?? "");
-  const [apiKey, setApiKey] = useState(initial?.api_key ?? "");
+  const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(initial?.base_url ?? "https://api.openai.com/v1");
   const [model, setModel] = useState(initial?.model ?? "");
   const [models, setModels] = useState<string[]>([]);
@@ -352,21 +352,22 @@ const AgentForm = ({
 }: {
   initial?: AiAgent | null;
   models: AiConfig[];
-  onSave: (data: { name: string; modelId: string; systemPrompt: string }) => void;
+  onSave: (data: { name: string; modelId: string | null; systemPrompt: string; temperature?: number }) => void;
   onCancel: () => void;
 }) => {
   const [name, setName] = useState(initial?.name ?? "");
-  const [modelId, setModelId] = useState(initial?.model_id ?? "");
+  const [modelId, setModelId] = useState<string | null>(initial?.model_id ?? null);
   const [systemPrompt, setSystemPrompt] = useState(initial?.system_prompt ?? "");
+  const [temperature, setTemperature] = useState(initial?.temperature ?? 0.8);
   const [saving, setSaving] = useState(false);
   const isEdit = !!initial;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !modelId) return;
+    if (!name.trim()) return;
     setSaving(true);
     try {
-      await onSave({ name: name.trim(), modelId, systemPrompt: systemPrompt.trim() });
+      await onSave({ name: name.trim(), modelId: modelId || null, systemPrompt: systemPrompt.trim(), temperature });
     } finally {
       setSaving(false);
     }
@@ -385,11 +386,12 @@ const AgentForm = ({
       </div>
       <div className="flex flex-col gap-1.5">
         <Label>关联模型</Label>
-        <Select value={modelId} onValueChange={(v) => setModelId(v ?? "")}>
+        <Select value={modelId ?? "__default__"} onValueChange={(v) => setModelId(v === "__default__" ? null : v)}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder="选择模型..." />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="__default__">使用默认模型</SelectItem>
             {models.map((m) => (
               <SelectItem key={m.id} value={m.id}>
                 {m.name || m.model}
@@ -400,6 +402,18 @@ const AgentForm = ({
         {models.length === 0 && (
           <p className="text-xs text-muted-foreground/50">请先在「模型」标签页添加模型配置</p>
         )}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>Temperature</Label>
+        <Input
+          type="number"
+          min={0}
+          max={2}
+          step={0.1}
+          value={temperature}
+          onChange={(e) => setTemperature(parseFloat(e.target.value) || 0)}
+          placeholder="0.8"
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label>System Prompt</Label>
@@ -413,7 +427,7 @@ const AgentForm = ({
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>取消</Button>
-        <Button type="submit" disabled={saving || !name.trim() || !modelId}>
+        <Button type="submit" disabled={saving || !name.trim()}>
           {saving ? "保存中..." : isEdit ? "更新" : "添加"}
         </Button>
       </DialogFooter>
@@ -476,15 +490,15 @@ const SettingsPage = () => {
     setModels((prev) => prev.map((m) => ({ ...m, is_default: m.id === id })));
   };
 
-  const handleCreateAgent = async (data: { name: string; modelId: string; systemPrompt: string }) => {
-    await aiApi.createAgent(data.name, data.modelId, data.systemPrompt);
+  const handleCreateAgent = async (data: { name: string; modelId: string | null; systemPrompt: string; temperature?: number }) => {
+    await aiApi.createAgent(data.name, data.modelId, data.systemPrompt, data.temperature);
     await loadAll();
     setShowAgentForm(false);
   };
 
-  const handleUpdateAgent = async (data: { name: string; modelId: string; systemPrompt: string }) => {
+  const handleUpdateAgent = async (data: { name: string; modelId: string | null; systemPrompt: string; temperature?: number }) => {
     if (!editingAgent) return;
-    await aiApi.updateAgent(editingAgent.id, data.name, data.modelId, data.systemPrompt);
+    await aiApi.updateAgent(editingAgent.id, data.name, data.modelId, data.systemPrompt, data.temperature);
     await loadAll();
     setEditingAgent(null);
     setShowAgentForm(false);

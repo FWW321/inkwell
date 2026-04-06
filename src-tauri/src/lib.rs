@@ -7,19 +7,26 @@ mod state;
 
 use state::AppState;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! Welcome to Inkwell.", name)
-}
-
 pub fn run() {
     tauri::async_runtime::block_on(async {
-        let app_state = AppState::new()
-            .await
-            .expect("Failed to initialize app state");
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "inkwell=warn".parse().unwrap()),
+            )
+            .init();
 
-        let mut builder = tauri::Builder::default()
-            .plugin(tauri_plugin_opener::init());
+        let app_state = match AppState::new().await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("初始化失败: {e}");
+                return;
+            }
+        };
+
+        let _ = services::agent_service::seed_presets(app_state.db()).await;
+
+        let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
 
         #[cfg(debug_assertions)]
         {
@@ -29,7 +36,6 @@ pub fn run() {
         builder
             .manage(app_state)
             .invoke_handler(tauri::generate_handler![
-                greet,
                 commands::project::list_projects,
                 commands::project::get_project,
                 commands::project::create_project,
@@ -64,11 +70,8 @@ pub fn run() {
                 commands::ai::delete_ai_agent,
                 commands::ai::set_default_ai_agent,
                 commands::ai::list_models,
-                commands::ai::ai_continue_writing,
-                commands::ai::ai_rewrite,
-                commands::ai::ai_polish,
-                commands::ai::ai_generate_dialogue,
-                commands::ai::ai_chat,
+                commands::ai::ai_invoke,
+                commands::ai::ai_invoke_with_context,
                 commands::ai::ai_stream,
                 commands::ai::get_chat_history,
                 commands::ai::clear_chat_history,
@@ -92,6 +95,9 @@ pub fn run() {
                 commands::relation::delete_character_faction,
                 commands::review::review_beat,
                 commands::review::list_writing_reviews,
+                commands::outline_generation::generate_volume_structure,
+                commands::outline_generation::generate_chapter_structure,
+                commands::outline_generation::expand_chapter_outline,
             ])
             .run(tauri::generate_context!())
             .expect("error while running tauri application");

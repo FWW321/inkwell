@@ -24,7 +24,7 @@ import { Empty, EmptyHeader, EmptyMedia, EmptyDescription } from "@/components/u
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAiEditor } from "@/contexts/AiEditorContext";
 import { springs } from "@/lib/motion";
-import type { AiMode } from "@/lib/types";
+import type { EditorMode } from "@/contexts/AiEditorContext";
 import NarrativePanel from "./NarrativePanel";
 
 interface AiPanelProps {
@@ -32,7 +32,7 @@ interface AiPanelProps {
   onClose: () => void;
 }
 
-const modes: { key: AiMode | "narrative"; label: string; icon: typeof Sparkles }[] = [
+const modes: { key: EditorMode | "narrative"; label: string; icon: typeof Sparkles }[] = [
   { key: "narrative", label: "推演", icon: BookOpen },
   { key: "polish", label: "润色", icon: Sparkles },
   { key: "rewrite", label: "改写", icon: PenLine },
@@ -50,7 +50,7 @@ const PolishPanel = () => {
 
   const handlePolish = () => {
     if (!text.trim()) return;
-    startStreaming({ mode: "polish", text });
+    startStreaming({ text });
   };
 
   const handleCopy = async () => {
@@ -139,7 +139,6 @@ const RewritePanel = () => {
   const handleRewrite = () => {
     if (!text.trim()) return;
     startStreaming({
-      mode: "rewrite",
       text,
       instruction: instruction || undefined,
     });
@@ -237,7 +236,7 @@ const DialoguePanel = () => {
   const handleGenerate = () => {
     if (!characters.trim() || !scenario.trim()) return;
     const text = `角色信息：\n${characters}\n\n场景描述：\n${scenario}`;
-    startStreaming({ mode: "dialogue", text });
+    startStreaming({ text });
   };
 
   const handleCopy = async () => {
@@ -337,10 +336,7 @@ const ChatPanel = () => {
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
 
-    startStreaming({
-      mode: "chat",
-      text: userMsg,
-    });
+    startStreaming({ text: userMsg });
   };
 
   return (
@@ -426,7 +422,7 @@ const AiPanel = ({ open: _open, onClose }: AiPanelProps) => {
       setNarrativeMode(true);
     } else {
       setNarrativeMode(false);
-      setActiveMode(v as AiMode);
+      setActiveMode(v as EditorMode);
     }
   };
 

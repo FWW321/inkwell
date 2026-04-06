@@ -1,9 +1,18 @@
 import { createContext, useContext, useState, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
-import type { AiEditorState, AiMode, StreamChunk } from "@/lib/types";
+import type { AiEditorState, StreamChunk, AiAgent } from "@/lib/types";
 import { aiApi } from "@/lib/api";
 import { setDiffText } from "@/extensions/inline-diff";
+
+export type EditorMode = "polish" | "rewrite" | "dialogue" | "chat";
+
+const MODE_AGENT_NAMES: Record<EditorMode, string> = {
+  polish: "润色助手",
+  rewrite: "改写助手",
+  dialogue: "对话生成",
+  chat: "写作顾问",
+};
 
 interface AiEditorContextValue {
   editorState: AiEditorState;
@@ -14,18 +23,15 @@ interface AiEditorContextValue {
   streamingText: string;
   streamingReasoning: string;
   generatedText: string;
-  activeMode: AiMode;
+  activeMode: EditorMode;
 
   startStreaming: (params: {
-    mode: AiMode;
     text: string;
-    style?: string;
-    length?: string;
     instruction?: string;
   }) => Promise<void>;
   stopStreaming: () => void;
   setGeneratedText: (text: string) => void;
-  setActiveMode: (mode: AiMode) => void;
+  setActiveMode: (mode: EditorMode) => void;
   replaceSelection: (text: string) => void;
   insertAtCursor: (text: string) => void;
   getEditor: () => Editor | null;
@@ -48,7 +54,8 @@ export function AiEditorProvider({ children }: { children: ReactNode }) {
   const [streamingText, setStreamingText] = useState("");
   const [streamingReasoning, setStreamingReasoning] = useState("");
   const [generatedText, setGeneratedText] = useState("");
-  const [activeMode, setActiveMode] = useState<AiMode>("continue");
+  const [activeMode, setActiveMode] = useState<EditorMode>("polish");
+  const [agents, setAgents] = useState<AiAgent[]>([]);
   const editorRef = useRef<Editor | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -68,27 +75,41 @@ export function AiEditorProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const resolveAgentId = useCallback((mode: EditorMode): string => {
+    const targetName = MODE_AGENT_NAMES[mode];
+    const match = agents.find((a) => a.name === targetName);
+    if (match) return match.id;
+    return agents[0]?.id ?? "";
+  }, [agents]);
+
+  const loadAgents = useCallback(async () => {
+    try {
+      const list = await aiApi.listAgents();
+      setAgents(list);
+    } catch {}
+  }, []);
+
+  useState(() => { loadAgents(); });
+
   const streamRef = useRef("");
   const reasoningRef = useRef("");
 
   const startStreaming = useCallback(
     async (params: {
-      mode: AiMode;
       text: string;
-      style?: string;
-      length?: string;
       instruction?: string;
     }) => {
       if (!editorRef.current) return;
       const currentState = { ...editorState };
+      const agentId = resolveAgentId(activeMode);
 
       let promptText = params.text;
-      if (params.mode === "continue" && !promptText.trim()) {
-        promptText = currentState.cursorBefore || "";
+      if (activeMode === "polish" && !promptText.trim()) {
+        promptText = currentState.selectedText || "";
       }
 
-      if (params.mode === "rewrite" && params.instruction) {
-        promptText = `[改写指令: ${params.instruction}]\n\n${promptText}`;
+      if (params.instruction) {
+        promptText = `[指令: ${params.instruction}]\n\n${promptText}`;
       }
 
       setIsStreaming(true);
@@ -97,43 +118,53 @@ export function AiEditorProvider({ children }: { children: ReactNode }) {
       setGeneratedText("");
       streamRef.current = "";
       reasoningRef.current = "";
-
       abortRef.current = new AbortController();
 
+      const handleChunk = (chunk: StreamChunk) => {
+        if (abortRef.current?.signal.aborted) return;
+        if (chunk.reasoning) {
+          reasoningRef.current += chunk.reasoning;
+          setStreamingReasoning(reasoningRef.current);
+        }
+        if (chunk.text) {
+          streamRef.current += chunk.text;
+          setStreamingText(streamRef.current);
+          if (activeMode !== "chat") {
+            setDiffText(streamRef.current);
+          }
+        }
+        if (chunk.done) {
+          setIsStreaming(false);
+          setGeneratedText(streamRef.current);
+          setStreamingReasoning("");
+          reasoningRef.current = "";
+        }
+      };
+
       try {
-        await aiApi.stream(
-          {
-            projectId: currentState.projectId,
-            chapterId: currentState.chapterId || undefined,
-            mode: params.mode,
-            text: promptText,
-            style: params.style || undefined,
-            length: params.length || undefined,
-          },
-          (chunk: StreamChunk) => {
-            if (abortRef.current?.signal.aborted) return;
-            if (chunk.reasoning) {
-              reasoningRef.current += chunk.reasoning;
-              setStreamingReasoning(reasoningRef.current);
-            }
-            if (chunk.text) {
-              streamRef.current += chunk.text;
-              setStreamingText(streamRef.current);
-              setDiffText(streamRef.current);
-            }
-            if (chunk.done) {
-              setIsStreaming(false);
-              setGeneratedText(streamRef.current);
-              setStreamingReasoning("");
-              reasoningRef.current = "";
-            }
-          },
-        );
+        if (activeMode === "chat") {
+          await aiApi.stream(
+            {
+              projectId: currentState.projectId,
+              agentId,
+              text: promptText,
+              saveHistory: true,
+            },
+            handleChunk,
+          );
+        } else {
+          await aiApi.invokeWithContext(
+            agentId,
+            currentState.projectId,
+            promptText,
+            handleChunk,
+          );
+        }
       } catch {
         setIsStreaming(false);
       }
     },
-    [editorState],
+    [editorState, activeMode, resolveAgentId],
   );
 
   const stopStreaming = useCallback(() => {

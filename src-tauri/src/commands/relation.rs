@@ -9,7 +9,7 @@ pub async fn list_character_relations(
     state: State<'_, AppState>,
     project_id: String,
 ) -> AppResult<Vec<CharacterRelation>> {
-    relation_service::list_relations(&state.db, &project_id).await
+    relation_service::list_relations(state.db(), &project_id).await
 }
 
 #[tauri::command]
@@ -24,7 +24,7 @@ pub async fn create_character_relation(
     end_chapter_id: Option<String>,
 ) -> AppResult<CharacterRelation> {
     relation_service::create_relation(
-        &state.db,
+        state.db(),
         &project_id,
         &char_a_id,
         &char_b_id,
@@ -46,7 +46,7 @@ pub async fn update_character_relation(
     end_chapter_id: Option<String>,
 ) -> AppResult<CharacterRelation> {
     relation_service::update_relation(
-        &state.db,
+        state.db(),
         &id,
         &relationship_type,
         &description,
@@ -57,11 +57,8 @@ pub async fn update_character_relation(
 }
 
 #[tauri::command]
-pub async fn delete_character_relation(
-    state: State<'_, AppState>,
-    id: String,
-) -> AppResult<()> {
-    relation_service::delete_relation(&state.db, &id).await
+pub async fn delete_character_relation(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    relation_service::delete_relation(state.db(), &id).await
 }
 
 #[tauri::command]
@@ -69,7 +66,7 @@ pub async fn list_character_factions(
     state: State<'_, AppState>,
     project_id: String,
 ) -> AppResult<Vec<CharacterFaction>> {
-    relation_service::list_factions(&state.db, &project_id).await
+    relation_service::list_factions(state.db(), &project_id).await
 }
 
 #[tauri::command]
@@ -83,7 +80,7 @@ pub async fn create_character_faction(
     end_chapter_id: Option<String>,
 ) -> AppResult<CharacterFaction> {
     relation_service::create_faction(
-        &state.db,
+        state.db(),
         &project_id,
         &character_id,
         &faction,
@@ -104,7 +101,7 @@ pub async fn update_character_faction(
     end_chapter_id: Option<String>,
 ) -> AppResult<CharacterFaction> {
     relation_service::update_faction(
-        &state.db,
+        state.db(),
         &id,
         &faction,
         &role,
@@ -115,9 +112,6 @@ pub async fn update_character_faction(
 }
 
 #[tauri::command]
-pub async fn delete_character_faction(
-    state: State<'_, AppState>,
-    id: String,
-) -> AppResult<()> {
-    relation_service::delete_faction(&state.db, &id).await
+pub async fn delete_character_faction(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    relation_service::delete_faction(state.db(), &id).await
 }

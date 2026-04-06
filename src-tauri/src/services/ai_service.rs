@@ -3,6 +3,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tauri::ipc::Channel;
 
+use crate::db::created_id;
 use crate::db::models::{AiAgent, AiAgentWithModelName, AiConfig};
 use crate::error::{AppError, AppResult};
 use crate::state::Db;
@@ -35,39 +36,33 @@ fn is_record_error(e: &surrealdb::Error) -> bool {
     e.to_string().contains("record")
 }
 
-fn get_created_id(v: &Value) -> String {
-    match v {
-        Value::Object(map) => {
-            if let Some(Value::RecordId(rid)) = map.get("id") {
-                return rid.key.to_sql();
-            }
-        }
-        _ => {}
-    }
-    String::new()
-}
-
 async fn promote_default(db: &Db, table: &str) -> AppResult<()> {
     let first: Option<RecordId> = db
         .query("SELECT id, created_at FROM type::table($table) ORDER BY created_at ASC LIMIT 1")
         .bind(("table", table.to_string()))
         .await?
+        .check()?
         .take::<Option<RecordId>>(0)?;
     if let Some(first_id) = first {
         db.query("UPDATE type::record($id) SET is_default = true")
             .bind(("id", first_id))
-            .await?;
+            .await?
+            .check()?;
     }
     Ok(())
 }
 
-pub async fn fetch_available_models(api_key: &str, base_url: &str) -> AppResult<Vec<String>> {
+pub async fn fetch_available_models(
+    http: &Client,
+    api_key: &str,
+    base_url: &str,
+) -> AppResult<Vec<String>> {
     if api_key.is_empty() {
         return Err(AppError::Ai("请先配置 API Key".to_string()));
     }
 
     let url = format!("{}/models", base_url.trim_end_matches('/'));
-    let resp = Client::new()
+    let resp = http
         .get(&url)
         .bearer_auth(api_key)
         .send()
@@ -95,18 +90,23 @@ pub async fn fetch_available_models(api_key: &str, base_url: &str) -> AppResult<
 
 pub async fn list_models(db: &Db) -> AppResult<Vec<AiConfig>> {
     db.query("SELECT * FROM ai_model ORDER BY is_default DESC, created_at ASC")
-        .await?.take::<Vec<AiConfig>>(0).map_err(Into::into)
+        .await?
+        .check()?
+        .take::<Vec<AiConfig>>(0)
+        .map_err(Into::into)
 }
 
 pub async fn get_default_config(db: &Db) -> AppResult<AiConfig> {
     let result: Option<AiConfig> = db
         .query("SELECT * FROM ai_model WHERE is_default = true LIMIT 1")
         .await?
+        .check()?
         .take::<Option<AiConfig>>(0)?;
 
     match result {
         Some(c) => Ok(c),
-        None => list_models(db).await?
+        None => list_models(db)
+            .await?
             .into_iter()
             .next()
             .ok_or(AppError::Ai("请先配置 AI 模型".to_string())),
@@ -114,43 +114,59 @@ pub async fn get_default_config(db: &Db) -> AppResult<AiConfig> {
 }
 
 pub async fn get_model(db: &Db, id: &str) -> AppResult<AiConfig> {
-    db.select(("ai_model", id)).await?
+    db.select(("ai_model", id))
+        .await?
         .ok_or_else(|| AppError::NotFound("模型不存在".to_string()))
 }
 
+const AGENT_LIST_SQL: &str = "SELECT id, name, IF model != NONE { record::id(model) } ELSE { NONE } AS model_id, model.name AS model_name, system_prompt, temperature, is_default, created_at FROM ai_agent ORDER BY is_default DESC, created_at ASC FETCH model";
+
 pub async fn list_agents(db: &Db) -> AppResult<Vec<AiAgentWithModelName>> {
-    db.query("SELECT id, name, record::id(model) AS model_id, model.name AS model_name, system_prompt, is_default, created_at FROM ai_agent ORDER BY is_default DESC, created_at ASC FETCH model")
-        .await?.check()?.take::<Vec<AiAgentWithModelName>>(0).map_err(Into::into)
+    db.query(AGENT_LIST_SQL)
+        .await?
+        .check()?
+        .take::<Vec<AiAgentWithModelName>>(0)
+        .map_err(Into::into)
 }
 
 pub async fn get_default_agent(db: &Db) -> AppResult<AiAgentWithModelName> {
+    let sql = "SELECT id, name, IF model != NONE { record::id(model) } ELSE { NONE } AS model_id, model.name AS model_name, system_prompt, temperature, is_default, created_at FROM ai_agent WHERE is_default = true LIMIT 1 FETCH model";
     let result: Option<AiAgentWithModelName> = db
-        .query("SELECT id, name, record::id(model) AS model_id, model.name AS model_name, system_prompt, is_default, created_at FROM ai_agent WHERE is_default = true LIMIT 1 FETCH model")
-        .await?.check()?.take::<Option<AiAgentWithModelName>>(0)?;
+        .query(sql)
+        .await?
+        .check()?
+        .take::<Option<AiAgentWithModelName>>(0)?;
 
     match result {
         Some(a) => Ok(a),
-        None => list_agents(db).await?
+        None => list_agents(db)
+            .await?
             .into_iter()
             .next()
             .ok_or(AppError::Ai("请先配置 AI 助手".to_string())),
     }
 }
 
-async fn get_agent(db: &Db, id: &str) -> AppResult<AiAgentWithModelName> {
+pub async fn get_agent(db: &Db, id: &str) -> AppResult<AiAgentWithModelName> {
+    let sql = "SELECT id, name, IF model != NONE { record::id(model) } ELSE { NONE } AS model_id, model.name AS model_name, system_prompt, temperature, is_default, created_at FROM ai_agent WHERE id = $id FETCH model";
     let records: Vec<AiAgentWithModelName> = db
-        .query("SELECT id, name, record::id(model) AS model_id, model.name AS model_name, system_prompt, is_default, created_at FROM ai_agent WHERE id = $id FETCH model")
+        .query(sql)
         .bind(("id", RecordId::new("ai_agent", id)))
-        .await?.check()?.take::<Vec<AiAgentWithModelName>>(0)?;
-    records.into_iter().next()
+        .await?
+        .check()?
+        .take::<Vec<AiAgentWithModelName>>(0)?;
+    records
+        .into_iter()
+        .next()
         .ok_or_else(|| AppError::NotFound("助手不存在".to_string()))
 }
 
 pub async fn create_agent(
     db: &Db,
     name: &str,
-    model_id: &str,
+    model_id: Option<&str>,
     system_prompt: &str,
+    temperature: f32,
 ) -> AppResult<AiAgentWithModelName> {
     let count: Option<i64> = db
         .query("SELECT VALUE count() FROM [SELECT * FROM ai_agent]")
@@ -159,28 +175,49 @@ pub async fn create_agent(
         .take::<Option<i64>>(0)?;
     let is_default = count.map(|c| c == 0).unwrap_or(true);
 
-    let result: Result<Option<Value>, surrealdb::Error> = db
-        .query(
-            "CREATE ai_agent CONTENT { \
-             name: $name, \
-             model: type::record('ai_model', $mid), \
-             system_prompt: $prompt, \
-             is_default: $is_default \
-             }"
-        )
-        .bind(("name", name.to_string()))
-        .bind(("mid", model_id.to_string()))
-        .bind(("prompt", system_prompt.to_string()))
-        .bind(("is_default", is_default))
-        .await?
-        .take::<Option<Value>>(0);
+    let result: Result<Option<Value>, surrealdb::Error> = match model_id {
+        Some(mid) => db
+            .query(
+                "CREATE ai_agent CONTENT { \
+                 name: $name, \
+                 model: type::record('ai_model', $mid), \
+                 system_prompt: $prompt, \
+                 temperature: $temp, \
+                 is_default: $is_default \
+                 }",
+            )
+            .bind(("name", name.to_string()))
+            .bind(("mid", mid.to_string()))
+            .bind(("prompt", system_prompt.to_string()))
+            .bind(("temp", temperature))
+            .bind(("is_default", is_default))
+            .await?
+            .check()?
+            .take::<Option<Value>>(0),
+        None => db
+            .query(
+                "CREATE ai_agent CONTENT { \
+                 name: $name, \
+                 system_prompt: $prompt, \
+                 temperature: $temp, \
+                 is_default: $is_default \
+                 }",
+            )
+            .bind(("name", name.to_string()))
+            .bind(("prompt", system_prompt.to_string()))
+            .bind(("temp", temperature))
+            .bind(("is_default", is_default))
+            .await?
+            .check()?
+            .take::<Option<Value>>(0),
+    };
 
     match result {
         Ok(Some(v)) => {
-            let id_str = get_created_id(&v);
+            let id_str = created_id(&v)?;
             get_agent(db, &id_str).await
         }
-        Ok(None) => Err(AppError::Internal("create agent failed".into())),
+        Ok(None) => Err(AppError::Internal(anyhow::anyhow!("create agent failed"))),
         Err(e) if is_unique_error(&e) => Err(AppError::Ai("已存在同名的助手".to_string())),
         Err(e) if is_record_error(&e) => Err(AppError::Ai("关联的模型不存在".to_string())),
         Err(e) => Err(AppError::Database(e)),
@@ -191,23 +228,45 @@ pub async fn update_agent(
     db: &Db,
     id: &str,
     name: &str,
-    model_id: &str,
+    model_id: Option<&str>,
     system_prompt: &str,
+    temperature: f32,
 ) -> AppResult<AiAgentWithModelName> {
-    let result: Result<Option<Value>, surrealdb::Error> = db
-        .query(
-            "UPDATE type::record($id) MERGE { \
-             name: $name, \
-             model: type::record('ai_model', $mid), \
-             system_prompt: $prompt \
-             }"
-        )
-        .bind(("id", RecordId::new("ai_agent", id)))
-        .bind(("name", name.to_string()))
-        .bind(("mid", model_id.to_string()))
-        .bind(("prompt", system_prompt.to_string()))
-        .await?
-        .take::<Option<Value>>(0);
+    let result: Result<Option<Value>, surrealdb::Error> = match model_id {
+        Some(mid) => db
+            .query(
+                "UPDATE type::record($id) MERGE { \
+                 name: $name, \
+                 model: type::record('ai_model', $mid), \
+                 system_prompt: $prompt, \
+                 temperature: $temp \
+                 }",
+            )
+            .bind(("id", RecordId::new("ai_agent", id)))
+            .bind(("name", name.to_string()))
+            .bind(("mid", mid.to_string()))
+            .bind(("prompt", system_prompt.to_string()))
+            .bind(("temp", temperature))
+            .await?
+            .check()?
+            .take::<Option<Value>>(0),
+        None => db
+            .query(
+                "UPDATE type::record($id) MERGE { \
+                 name: $name, \
+                 model: NONE, \
+                 system_prompt: $prompt, \
+                 temperature: $temp \
+                 }",
+            )
+            .bind(("id", RecordId::new("ai_agent", id)))
+            .bind(("name", name.to_string()))
+            .bind(("prompt", system_prompt.to_string()))
+            .bind(("temp", temperature))
+            .await?
+            .check()?
+            .take::<Option<Value>>(0),
+    };
 
     match result {
         Ok(Some(_)) => get_agent(db, id).await,
@@ -233,11 +292,15 @@ pub async fn delete_agent(db: &Db, id: &str) -> AppResult<()> {
 }
 
 pub async fn set_default_agent(db: &Db, id: &str) -> AppResult<()> {
-    db.query("UPDATE ai_agent SET is_default = false WHERE is_default = true")
-        .await?;
-    db.query("UPDATE type::record($id) SET is_default = true")
-        .bind(("id", RecordId::new("ai_agent", id)))
-        .await?;
+    db.query(
+        "BEGIN; \
+         UPDATE ai_agent SET is_default = false WHERE is_default = true; \
+         UPDATE type::record($id) SET is_default = true; \
+         COMMIT",
+    )
+    .bind(("id", RecordId::new("ai_agent", id)))
+    .await?
+    .check()?;
     Ok(())
 }
 
@@ -268,7 +331,7 @@ pub async fn create_model(
 
     match result {
         Ok(Some(cfg)) => Ok(cfg),
-        Ok(None) => Err(AppError::Internal("create model failed".into())),
+        Ok(None) => Err(AppError::Internal(anyhow::anyhow!("create model failed"))),
         Err(e) if is_unique_error(&e) => Err(AppError::Ai("已存在同名配置".to_string())),
         Err(e) => Err(AppError::Database(e)),
     }
@@ -315,15 +378,20 @@ pub async fn delete_model(db: &Db, id: &str) -> AppResult<()> {
 }
 
 pub async fn set_default_model(db: &Db, id: &str) -> AppResult<()> {
-    db.query("UPDATE ai_model SET is_default = false WHERE is_default = true")
-        .await?;
-    db.query("UPDATE type::record($id) SET is_default = true")
-        .bind(("id", RecordId::new("ai_model", id)))
-        .await?;
+    db.query(
+        "BEGIN; \
+         UPDATE ai_model SET is_default = false WHERE is_default = true; \
+         UPDATE type::record($id) SET is_default = true; \
+         COMMIT",
+    )
+    .bind(("id", RecordId::new("ai_model", id)))
+    .await?
+    .check()?;
     Ok(())
 }
 
-pub(crate) async fn chat_completion(
+pub async fn chat_completion(
+    http: &Client,
     config: &AiConfig,
     system_prompt: &str,
     user_message: &str,
@@ -343,9 +411,9 @@ pub(crate) async fn chat_completion(
         "temperature": temperature,
     });
 
-    let resp = Client::new()
+    let resp = http
         .post(&url)
-        .header("Authorization", format!("Bearer {}", config.api_key))
+        .bearer_auth(&config.api_key)
         .json(&body)
         .send()
         .await
@@ -365,18 +433,40 @@ pub(crate) async fn chat_completion(
         .await
         .map_err(|e| AppError::Ai(format!("解析响应失败: {}", e)))?;
 
-    data["choices"][0]["message"]["content"]
-        .as_str()
+    data.get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| AppError::Ai("AI 返回内容为空".to_string()))
 }
 
 pub async fn stream_ai(
+    http: &Client,
     config: &AiConfig,
     preamble: &str,
     prompt_text: &str,
+    temperature: f32,
     on_chunk: &Channel<StreamChunk>,
 ) -> AppResult<()> {
+    stream_ai_with_callback(http, config, preamble, prompt_text, temperature, |chunk| {
+        let _ = on_chunk.send(chunk);
+    })
+    .await
+}
+
+pub async fn stream_ai_with_callback<F>(
+    http: &Client,
+    config: &AiConfig,
+    preamble: &str,
+    prompt_text: &str,
+    temperature: f32,
+    mut on_chunk: F,
+) -> AppResult<()>
+where
+    F: FnMut(StreamChunk) + Send,
+{
     if config.api_key.is_empty() {
         return Err(AppError::Ai("请先在设置中配置 API Key".to_string()));
     }
@@ -388,13 +478,13 @@ pub async fn stream_ai(
             { "role": "system", "content": preamble },
             { "role": "user", "content": prompt_text },
         ],
-        "temperature": 0.8,
+        "temperature": temperature,
         "stream": true,
     });
 
-    let resp = Client::new()
+    let resp = http
         .post(&url)
-        .header("Authorization", format!("Bearer {}", config.api_key))
+        .bearer_auth(&config.api_key)
         .json(&body)
         .send()
         .await
@@ -403,7 +493,7 @@ pub async fn stream_ai(
     if !resp.status().is_success() {
         let status = resp.status();
         let error_body = resp.text().await.unwrap_or_default();
-        let _ = on_chunk.send(StreamChunk {
+        on_chunk(StreamChunk {
             text: format!("\n\n[错误: {}]", error_body),
             done: true,
             reasoning: None,
@@ -428,7 +518,7 @@ pub async fn stream_ai(
             for line in event.lines() {
                 if let Some(data) = line.strip_prefix("data: ") {
                     if data.trim() == "[DONE]" {
-                        let _ = on_chunk.send(StreamChunk {
+                        on_chunk(StreamChunk {
                             text: String::new(),
                             done: true,
                             reasoning: None,
@@ -441,7 +531,7 @@ pub async fn stream_ai(
 
                         if let Some(text) = delta["content"].as_str() {
                             if !text.is_empty() {
-                                let _ = on_chunk.send(StreamChunk {
+                                on_chunk(StreamChunk {
                                     text: text.to_string(),
                                     done: false,
                                     reasoning: None,
@@ -451,7 +541,7 @@ pub async fn stream_ai(
 
                         if let Some(reasoning) = delta["reasoning_content"].as_str() {
                             if !reasoning.is_empty() {
-                                let _ = on_chunk.send(StreamChunk {
+                                on_chunk(StreamChunk {
                                     text: String::new(),
                                     done: false,
                                     reasoning: Some(reasoning.to_string()),
@@ -464,91 +554,13 @@ pub async fn stream_ai(
         }
     }
 
-    let _ = on_chunk.send(StreamChunk {
+    on_chunk(StreamChunk {
         text: String::new(),
         done: true,
         reasoning: None,
     });
 
     Ok(())
-}
-
-pub async fn continue_writing(
-    config: &AiConfig,
-    context: &str,
-    style: &str,
-    length: &str,
-) -> AppResult<String> {
-    let length_guide = match length {
-        "short" => "100-200字",
-        "medium" => "300-500字",
-        "long" => "600-1000字",
-        _ => "300-500字",
-    };
-
-    let preamble = format!(
-        "你是一位专业的小说创作助手。你的任务是根据已有内容续写故事。\
-         请保持与前文一致的风格、语气和叙事视角。\
-         续写内容要自然流畅，与前文无缝衔接。\
-         用户期望的写作风格：{}。\
-         续写长度约{}。\
-         直接输出续写内容，不要加任何说明或标记。",
-        style, length_guide
-    );
-
-    chat_completion(config, &preamble, context, 0.8).await
-}
-
-pub async fn rewrite(
-    config: &AiConfig,
-    selected_text: &str,
-    instruction: &str,
-) -> AppResult<String> {
-    let preamble = format!(
-        "你是一位专业的文字编辑。用户会给你一段文字和一个改写指令，请根据指令改写这段文字。\
-         改写指令：{}。\
-         直接输出改写后的内容，不要加任何说明或标记。",
-        instruction
-    );
-
-    chat_completion(config, &preamble, selected_text, 0.8).await
-}
-
-pub async fn polish(config: &AiConfig, selected_text: &str) -> AppResult<String> {
-    let preamble = "你是一位专业的文学编辑。请润色用户提供的文字，提升表达质量，使之更加流畅优美。\
-                    保持原文的核心意思不变，适当优化用词和句式。\
-                    直接输出润色后的内容，不要加任何说明或标记。";
-
-    chat_completion(config, preamble, selected_text, 0.8).await
-}
-
-pub async fn generate_dialogue(
-    config: &AiConfig,
-    characters: &str,
-    scenario: &str,
-) -> AppResult<String> {
-    let preamble = "你是一位擅长创作对话的小说家。根据提供的角色信息和场景描述，\
-                    生成自然生动的角色对话。对话要符合每个角色的性格特点，推动情节发展。\
-                    使用中文引号「」包裹对话内容，并标注说话者。\
-                    直接输出对话内容，不要加任何说明或标记。";
-
-    let prompt = format!("角色信息：\n{}\n\n场景描述：\n{}", characters, scenario);
-
-    chat_completion(config, preamble, &prompt, 0.8).await
-}
-
-pub async fn chat(
-    config: &AiConfig,
-    _project_id: &str,
-    _context_type: &str,
-    _context_id: &str,
-    message: &str,
-) -> AppResult<String> {
-    let preamble = "你是 Inkwell 写作助手，一位专业的小说创作顾问。\
-                    你可以帮助用户解决写作中的各种问题：情节构思、角色塑造、文笔提升、结构规划等。\
-                    请给出具体、有建设性的建议。用中文回复。";
-
-    chat_completion(config, preamble, message, 0.8).await
 }
 
 pub async fn save_chat_message(
@@ -564,7 +576,8 @@ pub async fn save_chat_message(
     .bind(("pid", project_id.to_string()))
     .bind(("role", role.to_string()))
     .bind(("content", content.to_string()))
-    .await?;
+    .await?
+    .check()?;
     Ok(())
 }
 
@@ -584,12 +597,11 @@ pub async fn get_chat_history(
         .bind(("pid", RecordId::new("project", project_id)))
         .bind(("lim", limit as i64))
         .await?
+        .check()?
         .take::<Vec<ChatMessageRow>>(0)?;
 
-    let mut rows: Vec<(String, String)> = records
-        .into_iter()
-        .map(|r| (r.role, r.content))
-        .collect();
+    let mut rows: Vec<(String, String)> =
+        records.into_iter().map(|r| (r.role, r.content)).collect();
     rows.reverse();
     Ok(rows)
 }
@@ -597,37 +609,7 @@ pub async fn get_chat_history(
 pub async fn clear_chat_history(db: &Db, project_id: &str) -> AppResult<()> {
     db.query("DELETE FROM ai_message WHERE project = $pid")
         .bind(("pid", RecordId::new("project", project_id)))
-        .await?;
+        .await?
+        .check()?;
     Ok(())
-}
-
-pub async fn ai_stream_with_context(
-    db: &Db,
-    config: &AiConfig,
-    project_id: &str,
-    chapter_id: Option<&str>,
-    mode: &str,
-    user_text: &str,
-    style: Option<&str>,
-    length: Option<&str>,
-    on_chunk: &Channel<StreamChunk>,
-) -> AppResult<()> {
-    let contract = super::context_service::build_contract(db, project_id, "").await?;
-
-    let mut preamble = super::context_service::format_editor_system_prompt(&contract, mode);
-
-    if let Some(s) = style {
-        preamble.push_str(&format!("\n\n用户期望的写作风格：{}。", s));
-    }
-    if let Some(l) = length {
-        let guide = match l {
-            "short" => "100-200字",
-            "medium" => "300-500字",
-            "long" => "600-1000字",
-            _ => "300-500字",
-        };
-        preamble.push_str(&format!("\n\n续写长度约{}。", guide));
-    }
-
-    stream_ai(config, &preamble, user_text, on_chunk).await
 }

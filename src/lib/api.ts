@@ -44,6 +44,12 @@ export const outlineApi = {
     invoke<void>("save_diff", { id, originalText, newText, mode }),
   clearDiff: (id: string) =>
     invoke<void>("clear_diff", { id }),
+  generateVolumeStructure: (projectId: string, concept: string, agentId: string) =>
+    invoke<OutlineNode[]>("generate_volume_structure", { projectId, concept, agentId }),
+  generateChapterStructure: (volumeId: string, agentId: string) =>
+    invoke<OutlineNode[]>("generate_chapter_structure", { volumeId, agentId }),
+  expandChapterOutline: (chapterId: string, agentId: string) =>
+    invoke<OutlineNode>("expand_chapter_outline", { chapterId, agentId }),
 };
 
 export const characterApi = {
@@ -120,36 +126,41 @@ export const aiApi = {
   fetchAvailableModels: (apiKey?: string, baseUrl?: string) =>
     invoke<string[]>("list_models", { apiKey, baseUrl }),
   listAgents: () => invoke<AiAgent[]>("list_ai_agents"),
-  createAgent: (name: string, modelId: string, systemPrompt: string) =>
-    invoke<AiAgent>("create_ai_agent", { name, modelId, systemPrompt }),
-  updateAgent: (id: string, name: string, modelId: string, systemPrompt: string) =>
-    invoke<AiAgent>("update_ai_agent", { id, name, modelId, systemPrompt }),
+  createAgent: (name: string, modelId: string | null, systemPrompt: string, temperature?: number | null) =>
+    invoke<AiAgent>("create_ai_agent", { name, modelId, systemPrompt, temperature: temperature ?? null }),
+  updateAgent: (id: string, name: string, modelId: string | null, systemPrompt: string, temperature?: number | null) =>
+    invoke<AiAgent>("update_ai_agent", { id, name, modelId, systemPrompt, temperature: temperature ?? null }),
   deleteAgent: (id: string) => invoke<void>("delete_ai_agent", { id }),
   setDefaultAgent: (id: string) => invoke<void>("set_default_ai_agent", { id }),
-  continueWriting: (context: string, style: string, length: string) =>
-    invoke<string>("ai_continue_writing", { context, style, length }),
-  rewrite: (selectedText: string, instruction: string) =>
-    invoke<string>("ai_rewrite", { selectedText, instruction }),
-  polish: (selectedText: string) =>
-    invoke<string>("ai_polish", { selectedText }),
-  generateDialogue: (characters: string, scenario: string) =>
-    invoke<string>("ai_generate_dialogue", { characters, scenario }),
-  chat: (projectId: string, contextType: string, contextId: string, message: string) =>
-    invoke<string>("ai_chat", { projectId, contextType, contextId, message }),
+  invoke: (agentId: string, userText: string) =>
+    invoke<string>("ai_invoke", { agentId, userText }),
+  invokeWithContext: (
+    agentId: string,
+    projectId: string,
+    userText: string,
+    onChunk: (chunk: StreamChunk) => void,
+  ): Promise<void> => {
+    const channel = new Channel<StreamChunk>(onChunk);
+    return invoke("ai_invoke_with_context", {
+      agentId,
+      projectId,
+      userText,
+      onChunk: channel,
+    });
+  },
   stream: (
     params: {
       projectId: string;
-      chapterId?: string | null;
-      mode: string;
+      agentId: string;
       text: string;
-      style?: string | null;
-      length?: string | null;
+      saveHistory?: boolean;
     },
     onChunk: (chunk: StreamChunk) => void,
   ): Promise<void> => {
     const channel = new Channel<StreamChunk>(onChunk);
     return invoke("ai_stream", {
       ...params,
+      saveHistory: params.saveHistory ?? false,
       onChunk: channel,
     });
   },
@@ -190,11 +201,13 @@ export const narrativeApi = {
   advanceNarration: (
     sessionId: string,
     onChunk: (chunk: NarrativeStreamChunk) => void,
+    agentId?: string | null,
     instruction?: string | null,
   ): Promise<void> => {
     const channel = new Channel<NarrativeStreamChunk>(onChunk);
     return invoke("advance_narration", {
       sessionId,
+      agentId: agentId ?? null,
       instruction: instruction ?? null,
       onChunk: channel,
     });
@@ -203,12 +216,14 @@ export const narrativeApi = {
     sessionId: string,
     characterId: string,
     onChunk: (chunk: NarrativeStreamChunk) => void,
+    agentId?: string | null,
     instruction?: string | null,
   ): Promise<void> => {
     const channel = new Channel<NarrativeStreamChunk>(onChunk);
     return invoke("invoke_narrative_character", {
       sessionId,
       characterId,
+      agentId: agentId ?? null,
       instruction: instruction ?? null,
       onChunk: channel,
     });
@@ -294,12 +309,14 @@ export const reviewApi = {
     beatId: string,
     beatContent: string,
     beatType: string,
+    agentId?: string | null,
   ) =>
     invoke<AggregateReview>("review_beat", {
       sessionId,
       beatId,
       beatContent,
       beatType,
+      agentId: agentId ?? null,
     }),
   listReviews: (sessionId: string) =>
     invoke<WritingReview[]>("list_writing_reviews", { sessionId }),

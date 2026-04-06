@@ -9,7 +9,7 @@ pub async fn list_worldview_entries(
     state: State<'_, AppState>,
     project_id: String,
 ) -> AppResult<Vec<WorldviewEntry>> {
-    worldview_service::list(&state.db, &project_id).await
+    worldview_service::list(state.db(), &project_id).await
 }
 
 #[tauri::command]
@@ -20,7 +20,7 @@ pub async fn create_worldview_entry(
     title: String,
     content: String,
 ) -> AppResult<WorldviewEntry> {
-    worldview_service::create(&state.db, &project_id, &category, &title, &content).await
+    worldview_service::create(state.db(), &project_id, &category, &title, &content).await
 }
 
 #[tauri::command]
@@ -31,13 +31,10 @@ pub async fn update_worldview_entry(
     title: String,
     content: String,
 ) -> AppResult<WorldviewEntry> {
-    worldview_service::update(&state.db, &id, &category, &title, &content).await
+    worldview_service::update(state.db(), &id, &category, &title, &content).await
 }
 
 #[tauri::command]
-pub async fn delete_worldview_entry(
-    state: State<'_, AppState>,
-    id: String,
-) -> AppResult<()> {
-    worldview_service::delete(&state.db, &id).await
+pub async fn delete_worldview_entry(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    worldview_service::delete(state.db(), &id).await
 }

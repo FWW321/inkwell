@@ -60,7 +60,6 @@ export interface WorldviewEntry {
 export interface AiConfig {
   id: string;
   name: string;
-  api_key: string;
   model: string;
   base_url: string;
   is_default: boolean;
@@ -70,8 +69,9 @@ export interface AiConfig {
 export interface AiAgent {
   id: string;
   name: string;
-  model_id: string;
+  model_id: string | null;
   system_prompt: string;
+  temperature: number;
   is_default: boolean;
   created_at: string;
   model_name?: string | null;
@@ -81,8 +81,6 @@ export interface AiMessage {
   role: "user" | "assistant" | "system";
   content: string;
 }
-
-export type AiMode = "continue" | "rewrite" | "polish" | "dialogue" | "chat";
 
 export interface StreamChunk {
   text: string;

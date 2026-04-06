@@ -23,7 +23,11 @@ pub struct OutlineNode {
     pub id: RecordId,
     #[serde(rename = "project_id", with = "rid")]
     pub project: RecordId,
-    #[serde(rename = "parent_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "parent_id",
+        with = "opt_rid",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub parent: Option<RecordId>,
     pub node_type: String,
     pub title: String,
@@ -56,7 +60,11 @@ pub struct Character {
     pub personality: String,
     pub background: String,
     pub race: String,
-    #[serde(rename = "model_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "model_id",
+        with = "opt_rid",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub model: Option<RecordId>,
     pub created_at: Datetime,
 }
@@ -76,7 +84,11 @@ pub struct CharacterWithModelName {
     pub personality: String,
     pub background: String,
     pub race: String,
-    #[serde(rename = "model_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "model_id",
+        with = "opt_rid",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub model: Option<RecordId>,
     pub created_at: Datetime,
     #[serde(rename = "model_id")]
@@ -113,6 +125,7 @@ pub struct AiConfig {
     #[serde(with = "rid")]
     pub id: RecordId,
     pub name: String,
+    #[serde(skip_serializing)]
     pub api_key: String,
     pub model: String,
     pub base_url: String,
@@ -120,14 +133,43 @@ pub struct AiConfig {
     pub created_at: Datetime,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AiConfigPublic {
+    #[serde(with = "rid")]
+    pub id: RecordId,
+    pub name: String,
+    pub model: String,
+    pub base_url: String,
+    pub is_default: bool,
+    pub created_at: Datetime,
+}
+
+impl From<AiConfig> for AiConfigPublic {
+    fn from(c: AiConfig) -> Self {
+        Self {
+            id: c.id,
+            name: c.name,
+            model: c.model,
+            base_url: c.base_url,
+            is_default: c.is_default,
+            created_at: c.created_at,
+        }
+    }
+}
+
 #[derive(Debug, Clone, SurrealValue, serde::Serialize)]
 pub struct AiAgent {
     #[serde(with = "rid")]
     pub id: RecordId,
     pub name: String,
-    #[serde(rename = "model_id", with = "rid")]
-    pub model: RecordId,
+    #[serde(
+        rename = "model_id",
+        with = "opt_rid",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model: Option<RecordId>,
     pub system_prompt: String,
+    pub temperature: f32,
     pub is_default: bool,
     pub created_at: Datetime,
 }
@@ -137,11 +179,13 @@ pub struct AiAgentWithModelName {
     #[serde(with = "rid")]
     pub id: RecordId,
     pub name: String,
-    pub model_id: String,
+    #[serde(rename = "model_id")]
+    pub model_id: Option<String>,
     pub system_prompt: String,
+    pub temperature: f32,
     pub is_default: bool,
     pub created_at: Datetime,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "model_name")]
     pub model_name: Option<String>,
 }
 
@@ -168,7 +212,11 @@ pub struct NarrativeBeat {
     #[serde(rename = "session_id", with = "rid")]
     pub session: RecordId,
     pub beat_type: String,
-    #[serde(rename = "character_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "character_id",
+        with = "opt_rid",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub character: Option<RecordId>,
     pub character_name: String,
     pub content: String,
@@ -193,7 +241,11 @@ pub struct NarrativeEvent {
     #[serde(rename = "session_id", with = "rid")]
     pub session: RecordId,
     pub event_type: String,
-    #[serde(rename = "character_id", with = "opt_rid", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "character_id",
+        with = "opt_rid",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub character: Option<RecordId>,
     pub character_name: String,
     pub summary: String,
@@ -246,7 +298,10 @@ pub struct CharacterRelation {
     pub description: String,
     #[serde(rename = "start_chapter_id", skip_serializing_if = "Option::is_none")]
     pub start_chapter_id: Option<String>,
-    #[serde(rename = "start_chapter_title", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "start_chapter_title",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub start_chapter_title: Option<String>,
     #[serde(rename = "end_chapter_id", skip_serializing_if = "Option::is_none")]
     pub end_chapter_id: Option<String>,
@@ -268,7 +323,10 @@ pub struct CharacterFaction {
     pub role: String,
     #[serde(rename = "start_chapter_id", skip_serializing_if = "Option::is_none")]
     pub start_chapter_id: Option<String>,
-    #[serde(rename = "start_chapter_title", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "start_chapter_title",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub start_chapter_title: Option<String>,
     #[serde(rename = "end_chapter_id", skip_serializing_if = "Option::is_none")]
     pub end_chapter_id: Option<String>,

@@ -1,8 +1,9 @@
 pub mod ai;
+pub mod character;
 pub mod narrative;
 pub mod outline;
-pub mod character;
-pub mod relation;
+pub mod outline_generation;
 pub mod project;
+pub mod relation;
 pub mod review;
 pub mod worldview;

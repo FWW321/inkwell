@@ -4,11 +4,11 @@ use crate::state::Db;
 use surrealdb::types::RecordId;
 
 pub async fn list(db: &Db) -> AppResult<Vec<Project>> {
-    let projects: Vec<Project> = db
-        .query("SELECT * FROM project ORDER BY updated_at DESC")
+    db.query("SELECT * FROM project ORDER BY updated_at DESC")
         .await?
-        .take::<Vec<Project>>(0)?;
-    Ok(projects)
+        .check()?
+        .take::<Vec<Project>>(0)
+        .map_err(Into::into)
 }
 
 pub async fn get(db: &Db, id: &str) -> AppResult<Project> {
@@ -35,7 +35,7 @@ pub async fn create(
     });
 
     let created: Option<Project> = db.create("project").content(data).await?;
-    created.ok_or_else(|| AppError::Internal("create project failed".into()))
+    created.ok_or_else(|| AppError::Internal(anyhow::anyhow!("create project failed")))
 }
 
 pub async fn update(
@@ -56,7 +56,8 @@ pub async fn update(
         .bind(("language", language.to_string()))
         .bind(("tags", tags.to_string()))
         .bind(("status", status.to_string()))
-        .await?;
+        .await?
+        .check()?;
 
     get(db, id).await
 }

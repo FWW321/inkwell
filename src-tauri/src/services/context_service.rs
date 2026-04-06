@@ -1,10 +1,9 @@
 use crate::db::models::Character;
 use crate::error::AppResult;
 use crate::state::Db;
-use serde::{Deserialize, Serialize};
 use surrealdb::types::{RecordId, SurrealValue};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ContextContract {
     pub project_title: String,
     pub characters: Vec<CharacterContext>,
@@ -14,7 +13,7 @@ pub struct ContextContract {
     pub strand_context: StrandContext,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct CharacterContext {
     pub name: String,
     pub personality: String,
@@ -23,14 +22,14 @@ pub struct CharacterContext {
     pub state: Option<CharacterStateView>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WorldviewItem {
     pub category: String,
     pub title: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BeatSummary {
     pub beat_type: String,
     pub character_name: String,
@@ -38,7 +37,7 @@ pub struct BeatSummary {
     pub strand: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct CharacterStateView {
     pub name: String,
     pub emotion: String,
@@ -47,12 +46,22 @@ pub struct CharacterStateView {
     pub physical_state: String,
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, serde::Serialize, Default)]
 pub struct StrandContext {
     pub current_strand: String,
     pub quest_streak: i64,
     pub fire_gap: i64,
     pub constellation_gap: i64,
+}
+
+pub fn beat_label(beat: &BeatSummary) -> std::borrow::Cow<'_, str> {
+    match beat.beat_type.as_str() {
+        "narration" => "叙事".into(),
+        "character_action" => beat.character_name.as_str().into(),
+        "scene_change" => "场景切换".into(),
+        "author_intervention" => "作者指令".into(),
+        _ => beat.character_name.as_str().into(),
+    }
 }
 
 pub async fn build_contract(
@@ -91,10 +100,12 @@ pub async fn build_contract(
     })
 }
 
-pub fn format_narrator_prompt(contract: &ContextContract, scene: &str, atmosphere: &str) -> String {
-    let mut parts = Vec::new();
-
-    parts.push("你是一位专业的小说叙事者，负责推动剧情发展。你的职责是：描述场景变化和氛围、推动情节发展创造戏剧冲突、控制节奏在紧张和舒缓之间切换、为角色创造互动机会。只输出叙事内容，不要加任何标记或说明。".to_string());
+pub fn build_narrative_context(
+    contract: &ContextContract,
+    scene: &str,
+    atmosphere: &str,
+) -> String {
+    let mut parts = Vec::with_capacity(6);
 
     parts.push(format!("\n当前场景：{}", scene));
     if !atmosphere.is_empty() {
@@ -149,16 +160,7 @@ pub fn format_narrator_prompt(contract: &ContextContract, scene: &str, atmospher
         let beats: Vec<String> = contract
             .recent_beats
             .iter()
-            .map(|b| {
-                let label = match b.beat_type.as_str() {
-                    "narration" => "叙事",
-                    "character_action" => &b.character_name,
-                    "scene_change" => "场景切换",
-                    "author_intervention" => "作者指令",
-                    _ => &b.character_name,
-                };
-                format!("[{}] {}", label, b.content)
-            })
+            .map(|b| format!("[{}] {}", beat_label(b), b.content))
             .collect();
         parts.push(format!("\n前情提要：\n{}", beats.join("\n")));
     }
@@ -166,17 +168,12 @@ pub fn format_narrator_prompt(contract: &ContextContract, scene: &str, atmospher
     parts.join("\n")
 }
 
-pub fn format_character_prompt(
+pub fn build_character_context(
     contract: &ContextContract,
     character: &Character,
     scene: &str,
 ) -> String {
-    let mut parts = Vec::new();
-
-    parts.push(format!(
-        "你现在正在扮演小说中的角色「{}」。你必须完全沉浸在这个角色中，按照角色的性格、背景和当前处境做出真实的反应。只输出角色的反应（对话用「」包裹、行动描述、心理活动），不要跳出角色，不要加任何元说明。",
-        character.name
-    ));
+    let mut parts = Vec::with_capacity(6);
 
     if !character.personality.is_empty() {
         parts.push(format!("\n性格特点：{}", character.personality));
@@ -190,7 +187,11 @@ pub fn format_character_prompt(
 
     parts.push(format!("\n当前场景：{}", scene));
 
-    if let Some(self_state) = contract.character_states.iter().find(|s| s.name == character.name) {
+    if let Some(self_state) = contract
+        .character_states
+        .iter()
+        .find(|s| s.name == character.name)
+    {
         let mut state_info = "你当前状态：".to_string();
         if !self_state.emotion.is_empty() {
             state_info.push_str(&format!("情绪 {}", self_state.emotion));
@@ -230,15 +231,7 @@ pub fn format_character_prompt(
         let beats: Vec<String> = contract
             .recent_beats
             .iter()
-            .map(|b| {
-                let label = match b.beat_type.as_str() {
-                    "narration" => "叙事",
-                    "character_action" => &b.character_name,
-                    "scene_change" => "场景切换",
-                    _ => &b.character_name,
-                };
-                format!("[{}] {}", label, b.content)
-            })
+            .map(|b| format!("[{}] {}", beat_label(b), b.content))
             .collect();
         parts.push(format!("\n最近发生的事：\n{}", beats.join("\n")));
     }
@@ -246,10 +239,8 @@ pub fn format_character_prompt(
     parts.join("\n")
 }
 
-pub fn format_editor_system_prompt(contract: &ContextContract, mode: &str) -> String {
-    let mut parts = Vec::new();
-
-    parts.push("你是 Inkwell 写作助手，一位专业的小说创作顾问。".to_string());
+pub fn build_editor_context(contract: &ContextContract) -> String {
+    let mut parts = Vec::with_capacity(3);
 
     if !contract.project_title.is_empty() {
         parts.push(format!("当前项目：《{}》", contract.project_title));
@@ -273,74 +264,16 @@ pub fn format_editor_system_prompt(contract: &ContextContract, mode: &str) -> St
         parts.push(format!("世界观设定：\n{}", wv.join("\n")));
     }
 
-    match mode {
-        "continue" => {
-            parts.push(
-                "你的任务是根据已有内容续写故事。请保持与前文一致的风格、语气和叙事视角。\
-                 续写内容要自然流畅，与前文无缝衔接。直接输出续写内容，不要加任何说明或标记。"
-                    .to_string(),
-            );
-        }
-        "rewrite" => {
-            parts.push(
-                "你的任务是改写用户提供的文字。改写时要保持原文的核心意思，根据用户指令调整风格和表达。\
-                 直接输出改写后的内容，不要加任何说明或标记。"
-                    .to_string(),
-            );
-        }
-        "polish" => {
-            parts.push(
-                "你的任务是润色用户提供的文字，提升表达质量，使之更加流畅优美。\
-                 保持原文的核心意思不变，适当优化用词和句式。直接输出润色后的内容，不要加任何说明或标记。"
-                    .to_string(),
-            );
-        }
-        "dialogue" => {
-            parts.push(
-                "你是一位擅长创作对话的小说家。根据提供的角色信息和场景描述，生成自然生动的角色对话。\
-                 对话要符合每个角色的性格特点，推动情节发展。使用中文引号「」包裹对话内容，并标注说话者。\
-                 直接输出对话内容，不要加任何说明或标记。"
-                    .to_string(),
-            );
-        }
-        _ => {
-            parts.push(
-                "你可以帮助用户解决写作中的各种问题：情节构思、角色塑造、文笔提升、结构规划等。\
-                 请给出具体、有建设性的建议。用中文回复。"
-                    .to_string(),
-            );
-        }
-    }
-
     parts.join("\n\n")
 }
 
-pub async fn build_worldview_summary(db: &Db, project_id: &str) -> AppResult<String> {
-    #[derive(Debug, Clone, SurrealValue)]
-    struct WvRow {
-        category: String,
-        title: String,
-        content: String,
-    }
-
-    let entries: Vec<WvRow> = db
-        .query("SELECT category, title, content FROM worldview_entry WHERE project = $pid ORDER BY category, title")
+pub async fn get_project_characters(db: &Db, project_id: &str) -> AppResult<Vec<Character>> {
+    db.query("SELECT * FROM character WHERE project = $pid ORDER BY name")
         .bind(("pid", RecordId::new("project", project_id)))
         .await?
-        .take::<Vec<WvRow>>(0)?;
-
-    let lines: Vec<String> = entries
-        .iter()
-        .map(|e| {
-            if e.content.is_empty() {
-                format!("- [{}] {}", e.category, e.title)
-            } else {
-                format!("- [{}] {}：{}", e.category, e.title, e.content)
-            }
-        })
-        .collect();
-
-    Ok(lines.join("\n"))
+        .check()?
+        .take::<Vec<Character>>(0)
+        .map_err(Into::into)
 }
 
 async fn get_project_title(db: &Db, project_id: &str) -> AppResult<String> {
@@ -348,16 +281,9 @@ async fn get_project_title(db: &Db, project_id: &str) -> AppResult<String> {
         .query("SELECT VALUE title FROM project WHERE id = $pid")
         .bind(("pid", RecordId::new("project", project_id)))
         .await?
+        .check()?
         .take::<Option<String>>(0)?;
     Ok(result.unwrap_or_default())
-}
-
-async fn get_project_characters(db: &Db, project_id: &str) -> AppResult<Vec<Character>> {
-    db.query("SELECT * FROM character WHERE project = $pid ORDER BY name")
-        .bind(("pid", RecordId::new("project", project_id)))
-        .await?
-        .take::<Vec<Character>>(0)
-        .map_err(Into::into)
 }
 
 async fn get_worldview_entries(db: &Db, project_id: &str) -> AppResult<Vec<WorldviewItem>> {
@@ -372,6 +298,7 @@ async fn get_worldview_entries(db: &Db, project_id: &str) -> AppResult<Vec<World
         .query("SELECT category, title, content FROM worldview_entry WHERE project = $pid ORDER BY category, title")
         .bind(("pid", RecordId::new("project", project_id)))
         .await?
+        .check()?
         .take::<Vec<Row>>(0)?;
 
     Ok(rows
@@ -399,10 +326,11 @@ async fn get_recent_beats(db: &Db, session_id: &str) -> AppResult<Vec<BeatSummar
              FROM narrative_beat \
              WHERE session = type::record('narrative_session', $sid) \
              ORDER BY sort_order DESC \
-             LIMIT 20"
+             LIMIT 20",
         )
         .bind(("sid", session_id.to_string()))
         .await?
+        .check()?
         .take::<Vec<Row>>(0)?;
 
     let mut beats: Vec<BeatSummary> = rows
@@ -434,10 +362,11 @@ async fn get_character_states(db: &Db, session_id: &str) -> AppResult<Vec<Charac
              FROM character_state \
              WHERE out.session = type::record('narrative_session', $sid) \
              ORDER BY out.sort_order DESC \
-             LIMIT 1 BY in"
+             LIMIT 1 BY in",
         )
         .bind(("sid", session_id.to_string()))
         .await?
+        .check()?
         .take::<Vec<StateRow>>(0)?;
 
     Ok(rows
@@ -453,9 +382,10 @@ async fn get_character_states(db: &Db, session_id: &str) -> AppResult<Vec<Charac
 }
 
 async fn get_strand_context(db: &Db, session_id: &str) -> AppResult<StrandContext> {
-    #[derive(Debug, Clone, Deserialize, SurrealValue)]
+    #[derive(Debug, Clone, serde::Deserialize, SurrealValue)]
     struct StrandRow {
         strand: String,
+        #[serde(rename = "sort_order")]
         sort_order: Option<i64>,
     }
 
@@ -465,13 +395,17 @@ async fn get_strand_context(db: &Db, session_id: &str) -> AppResult<StrandContex
              WHERE session = type::record('narrative_session', $sid) \
              AND beat_type IN ['narration', 'character_action'] \
              ORDER BY sort_order DESC \
-             LIMIT 30"
+             LIMIT 30",
         )
         .bind(("sid", session_id.to_string()))
         .await?
+        .check()?
         .take::<Vec<StrandRow>>(0)?;
 
-    let current_strand = rows.first().map(|r| r.strand.clone()).unwrap_or_else(|| "quest".to_string());
+    let current_strand = rows
+        .first()
+        .map(|r| r.strand.clone())
+        .unwrap_or_else(|| "quest".to_string());
 
     let mut quest_streak: i64 = 0;
     let mut fire_gap: i64 = 0;

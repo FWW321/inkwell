@@ -1,13 +1,14 @@
 use crate::error::AppResult;
-use surrealdb::engine::local::SurrealKv;
 use surrealdb::Surreal;
+use surrealdb::engine::local::SurrealKv;
 
 use surrealdb::engine::local::Db as SurrealDb;
 
 pub type Db = Surreal<SurrealDb>;
 
 pub struct AppState {
-    pub db: Db,
+    db: Db,
+    http: reqwest::Client,
 }
 
 impl AppState {
@@ -22,7 +23,20 @@ impl AppState {
         db.use_ns("inkwell").use_db("inkwell").await?;
         init_schema(&db).await?;
 
-        Ok(Self { db })
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .map_err(|e| crate::error::AppError::Internal(anyhow::anyhow!(e)))?;
+
+        Ok(Self { db, http })
+    }
+
+    pub fn db(&self) -> &Db {
+        &self.db
+    }
+
+    pub fn http(&self) -> &reqwest::Client {
+        &self.http
     }
 }
 
@@ -34,7 +48,8 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE FIELD author ON project TYPE string DEFAULT '';
         DEFINE FIELD language ON project TYPE string DEFAULT '';
         DEFINE FIELD tags ON project TYPE string DEFAULT '';
-        DEFINE FIELD status ON project TYPE string DEFAULT 'ongoing';
+        DEFINE FIELD status ON project TYPE string DEFAULT 'ongoing'
+            ASSERT $value IN ['ongoing', 'completed', 'hiatus'];
         DEFINE FIELD cover_url ON project TYPE option<string>;
         DEFINE FIELD created_at ON project TYPE datetime DEFAULT time::now();
         DEFINE FIELD updated_at ON project TYPE datetime DEFAULT time::now();
@@ -44,13 +59,15 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE INDEX idx_outline_node_project ON outline_node FIELDS project;
         DEFINE FIELD parent ON outline_node TYPE option<record<outline_node>>;
         DEFINE INDEX idx_outline_node_project_parent ON outline_node FIELDS project, parent;
-        DEFINE FIELD node_type ON outline_node TYPE string;
+        DEFINE FIELD node_type ON outline_node TYPE string
+            ASSERT $value IN ['volume', 'chapter', 'scene'];
         DEFINE INDEX idx_outline_node_project_type ON outline_node FIELDS project, node_type;
         DEFINE FIELD title ON outline_node TYPE string;
         DEFINE FIELD sort_order ON outline_node TYPE int DEFAULT 0;
         DEFINE FIELD content_json ON outline_node TYPE any DEFAULT {};
         DEFINE FIELD word_count ON outline_node TYPE int DEFAULT 0;
-        DEFINE FIELD status ON outline_node TYPE string DEFAULT 'draft';
+        DEFINE FIELD status ON outline_node TYPE string DEFAULT 'draft'
+            ASSERT $value IN ['draft', 'in_progress', 'complete', 'revised'];
         DEFINE FIELD diff_original ON outline_node TYPE option<string>;
         DEFINE FIELD diff_new ON outline_node TYPE option<string>;
         DEFINE FIELD diff_mode ON outline_node TYPE option<string>;
@@ -91,15 +108,17 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE TABLE ai_agent SCHEMAFULL;
         DEFINE FIELD name ON ai_agent TYPE string;
         DEFINE INDEX idx_ai_agent_name ON ai_agent FIELDS name UNIQUE;
-        DEFINE FIELD model ON ai_agent TYPE record<ai_model>;
+        DEFINE FIELD model ON ai_agent TYPE option<record<ai_model>>;
         DEFINE FIELD system_prompt ON ai_agent TYPE string DEFAULT '';
+        DEFINE FIELD temperature ON ai_agent TYPE float DEFAULT 0.8;
         DEFINE FIELD is_default ON ai_agent TYPE bool DEFAULT false;
         DEFINE FIELD created_at ON ai_agent TYPE datetime DEFAULT time::now();
 
         DEFINE TABLE ai_message SCHEMAFULL;
         DEFINE FIELD project ON ai_message TYPE record<project>;
         DEFINE INDEX idx_ai_message_project ON ai_message FIELDS project;
-        DEFINE FIELD role ON ai_message TYPE string;
+        DEFINE FIELD role ON ai_message TYPE string
+            ASSERT $value IN ['user', 'assistant', 'system'];
         DEFINE FIELD content ON ai_message TYPE string;
         DEFINE FIELD created_at ON ai_message TYPE datetime DEFAULT time::now();
 
@@ -110,8 +129,10 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE FIELD scene ON narrative_session TYPE string DEFAULT '';
         DEFINE FIELD atmosphere ON narrative_session TYPE string DEFAULT '';
         DEFINE FIELD timeline_id ON narrative_session TYPE string DEFAULT 'main';
-        DEFINE FIELD strand ON narrative_session TYPE string DEFAULT 'quest';
-        DEFINE FIELD status ON narrative_session TYPE string DEFAULT 'active';
+        DEFINE FIELD strand ON narrative_session TYPE string DEFAULT 'quest'
+            ASSERT $value IN ['quest', 'fire', 'constellation'];
+        DEFINE FIELD status ON narrative_session TYPE string DEFAULT 'active'
+            ASSERT $value IN ['active', 'paused', 'ended'];
         DEFINE FIELD created_at ON narrative_session TYPE datetime DEFAULT time::now();
         DEFINE FIELD updated_at ON narrative_session TYPE datetime DEFAULT time::now();
 
@@ -119,14 +140,16 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE FIELD session ON narrative_beat TYPE record<narrative_session>;
         DEFINE INDEX idx_narrative_beat_session ON narrative_beat FIELDS session;
         DEFINE INDEX idx_narrative_beat_session_order ON narrative_beat FIELDS session, sort_order;
-        DEFINE FIELD beat_type ON narrative_beat TYPE string;
+        DEFINE FIELD beat_type ON narrative_beat TYPE string
+            ASSERT $value IN ['narration', 'character_action', 'scene_change', 'author_intervention'];
         DEFINE FIELD character ON narrative_beat TYPE option<record<character>>;
         DEFINE FIELD character_name ON narrative_beat TYPE string DEFAULT '';
         DEFINE FIELD content ON narrative_beat TYPE string DEFAULT '';
         DEFINE FIELD metadata ON narrative_beat TYPE any DEFAULT {};
         DEFINE FIELD sort_order ON narrative_beat TYPE int DEFAULT 0;
         DEFINE FIELD timeline_id ON narrative_beat TYPE string DEFAULT 'main';
-        DEFINE FIELD strand ON narrative_beat TYPE string DEFAULT 'quest';
+        DEFINE FIELD strand ON narrative_beat TYPE string DEFAULT 'quest'
+            ASSERT $value IN ['quest', 'fire', 'constellation'];
         DEFINE FIELD hook_type ON narrative_beat TYPE option<string>;
         DEFINE FIELD hook_strength ON narrative_beat TYPE option<string>;
         DEFINE FIELD micro_payoffs ON narrative_beat TYPE any DEFAULT [];

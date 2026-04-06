@@ -6,13 +6,18 @@ use surrealdb::types::RecordId;
 pub async fn list(db: &Db, project_id: &str) -> AppResult<Vec<CharacterWithModelName>> {
     db.query("SELECT *, model.name AS model_name FROM character WHERE project = $pid ORDER BY name")
         .bind(("pid", RecordId::new("project", project_id)))
-        .await?.take::<Vec<CharacterWithModelName>>(0).map_err(Into::into)
+        .await?
+        .check()?
+        .take::<Vec<CharacterWithModelName>>(0)
+        .map_err(Into::into)
 }
 
 pub async fn get(db: &Db, id: &str) -> AppResult<CharacterWithModelName> {
     db.query("SELECT *, model.name AS model_name FROM character WHERE id = $id")
         .bind(("id", RecordId::new("character", id)))
-        .await?.take::<Option<CharacterWithModelName>>(0)?
+        .await?
+        .check()?
+        .take::<Option<CharacterWithModelName>>(0)?
         .ok_or_else(|| AppError::NotFound(format!("Character {} not found", id)))
 }
 
@@ -29,8 +34,9 @@ pub async fn create(
 ) -> AppResult<Character> {
     let has_model = model_id.is_some();
 
-    let mut q = db.query(
-        "CREATE character CONTENT { \
+    let mut q = db
+        .query(
+            "CREATE character CONTENT { \
          project: type::record('project', $pid), \
          name: $name, \
          aliases: $aliases, \
@@ -39,22 +45,24 @@ pub async fn create(
          background: $background, \
          race: $race, \
          model: if $has_model { type::record('ai_model', $mid) } else { NONE } \
-         }"
-    )
-    .bind(("pid", project_id.to_string()))
-    .bind(("name", name.to_string()))
-    .bind(("aliases", aliases))
-    .bind(("description", description.to_string()))
-    .bind(("personality", personality.to_string()))
-    .bind(("background", background.to_string()))
-    .bind(("race", race.to_string()))
-    .bind(("has_model", has_model));
+         }",
+        )
+        .bind(("pid", project_id.to_string()))
+        .bind(("name", name.to_string()))
+        .bind(("aliases", aliases))
+        .bind(("description", description.to_string()))
+        .bind(("personality", personality.to_string()))
+        .bind(("background", background.to_string()))
+        .bind(("race", race.to_string()))
+        .bind(("has_model", has_model));
     if let Some(mid) = model_id {
         q = q.bind(("mid", mid.to_string()));
     }
 
-    q.await?.take::<Option<Character>>(0)?
-        .ok_or_else(|| AppError::Internal("create character failed".into()))
+    q.await?
+        .check()?
+        .take::<Option<Character>>(0)?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("create character failed")))
 }
 
 pub async fn update(
@@ -70,8 +78,9 @@ pub async fn update(
 ) -> AppResult<Character> {
     let has_model = model_id.is_some();
 
-    let mut q = db.query(
-        "UPDATE type::record($id) MERGE { \
+    let mut q = db
+        .query(
+            "UPDATE type::record($id) MERGE { \
          name: $name, \
          aliases: $aliases, \
          description: $description, \
@@ -79,21 +88,23 @@ pub async fn update(
          background: $background, \
          race: $race, \
          model: if $has_model { type::record('ai_model', $mid) } else { NONE } \
-         }"
-    )
-    .bind(("id", RecordId::new("character", id)))
-    .bind(("name", name.to_string()))
-    .bind(("aliases", aliases))
-    .bind(("description", description.to_string()))
-    .bind(("personality", personality.to_string()))
-    .bind(("background", background.to_string()))
-    .bind(("race", race.to_string()))
-    .bind(("has_model", has_model));
+         }",
+        )
+        .bind(("id", RecordId::new("character", id)))
+        .bind(("name", name.to_string()))
+        .bind(("aliases", aliases))
+        .bind(("description", description.to_string()))
+        .bind(("personality", personality.to_string()))
+        .bind(("background", background.to_string()))
+        .bind(("race", race.to_string()))
+        .bind(("has_model", has_model));
     if let Some(mid) = model_id {
         q = q.bind(("mid", mid.to_string()));
     }
 
-    q.await?.take::<Option<Character>>(0)?
+    q.await?
+        .check()?
+        .take::<Option<Character>>(0)?
         .ok_or_else(|| AppError::NotFound(format!("Character {} not found", id)))
 }
 

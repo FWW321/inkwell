@@ -392,9 +392,9 @@ const Editor = ({ chapterId }: EditorProps) => {
       (editor.commands as any).setInlineDiff(from, to);
 
       if (mode === "polish") {
-        startStreaming({ mode: "polish", text: selectedText });
+        startStreaming({ text: selectedText });
       } else {
-        startStreaming({ mode: "rewrite", text: selectedText, instruction: "" });
+        startStreaming({ text: selectedText, instruction: "" });
       }
     },
     [selState.selectedText, editor, setActiveMode, startStreaming],

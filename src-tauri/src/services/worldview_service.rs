@@ -6,7 +6,10 @@ use surrealdb::types::RecordId;
 pub async fn list(db: &Db, project_id: &str) -> AppResult<Vec<WorldviewEntry>> {
     db.query("SELECT * FROM worldview_entry WHERE project = $pid ORDER BY category, title")
         .bind(("pid", RecordId::new("project", project_id)))
-        .await?.take::<Vec<WorldviewEntry>>(0).map_err(Into::into)
+        .await?
+        .check()?
+        .take::<Vec<WorldviewEntry>>(0)
+        .map_err(Into::into)
 }
 
 pub async fn create(
@@ -21,8 +24,10 @@ pub async fn create(
         .bind(("category", category.to_string()))
         .bind(("title", title.to_string()))
         .bind(("content", content.to_string()))
-        .await?.take::<Option<WorldviewEntry>>(0)?
-        .ok_or_else(|| AppError::Internal("create worldview_entry failed".into()))
+        .await?
+        .check()?
+        .take::<Option<WorldviewEntry>>(0)?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("create worldview_entry failed")))
 }
 
 pub async fn update(
@@ -37,16 +42,21 @@ pub async fn update(
         .bind(("category", category.to_string()))
         .bind(("title", title.to_string()))
         .bind(("content", content.to_string()))
-        .await?;
+        .await?
+        .check()?;
 
-    db.select(("worldview_entry", id)).await?
+    db.select(("worldview_entry", id))
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("WorldviewEntry {} not found", id)))
 }
 
 pub async fn delete(db: &Db, id: &str) -> AppResult<()> {
     let deleted: Option<WorldviewEntry> = db.delete(("worldview_entry", id)).await?;
     if deleted.is_none() {
-        return Err(AppError::NotFound(format!("WorldviewEntry {} not found", id)));
+        return Err(AppError::NotFound(format!(
+            "WorldviewEntry {} not found",
+            id
+        )));
     }
     Ok(())
 }

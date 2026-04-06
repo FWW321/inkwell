@@ -3,20 +3,20 @@ use surrealdb::Error as SurrealError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
-    #[error("Database error: {0}")]
-    Database(#[from] SurrealError),
-    #[error("Not found: {0}")]
-    NotFound(String),
-    #[error("AI error: {0}")]
-    Ai(String),
-    #[error("Validation error: {0}")]
-    Validation(String),
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
     #[error("{0}")]
-    Internal(String),
+    NotFound(String),
+    #[error("{0}")]
+    Validation(String),
+    #[error("{0}")]
+    Ai(String),
+    #[error("服务内部错误")]
+    Internal(#[source] anyhow::Error),
+    #[error(transparent)]
+    Database(#[from] SurrealError),
+    #[error(transparent)]
+    Serialization(#[from] serde_json::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
 impl Serialize for AppError {
@@ -24,7 +24,22 @@ impl Serialize for AppError {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        let msg: &str = match self {
+            Self::NotFound(s) | Self::Validation(s) | Self::Ai(s) => s,
+            Self::Internal(_) => "服务内部错误",
+            Self::Database(e) => return serializer.serialize_str(&format!("数据库错误: {}", e)),
+            Self::Serialization(e) => {
+                return serializer.serialize_str(&format!("序列化错误: {}", e));
+            }
+            Self::Io(e) => return serializer.serialize_str(&format!("IO 错误: {}", e)),
+        };
+        serializer.serialize_str(msg)
+    }
+}
+
+impl From<anyhow::Error> for AppError {
+    fn from(e: anyhow::Error) -> Self {
+        Self::Internal(e)
     }
 }
 
