@@ -20,6 +20,7 @@ pub async fn create(
     db: &Db,
     project_id: &str,
     name: &str,
+    aliases: serde_json::Value,
     description: &str,
     personality: &str,
     background: &str,
@@ -32,6 +33,7 @@ pub async fn create(
         "CREATE character CONTENT { \
          project: type::record('project', $pid), \
          name: $name, \
+         aliases: $aliases, \
          description: $description, \
          personality: $personality, \
          background: $background, \
@@ -41,6 +43,7 @@ pub async fn create(
     )
     .bind(("pid", project_id.to_string()))
     .bind(("name", name.to_string()))
+    .bind(("aliases", aliases))
     .bind(("description", description.to_string()))
     .bind(("personality", personality.to_string()))
     .bind(("background", background.to_string()))
@@ -58,6 +61,7 @@ pub async fn update(
     db: &Db,
     id: &str,
     name: &str,
+    aliases: serde_json::Value,
     description: &str,
     personality: &str,
     background: &str,
@@ -69,6 +73,7 @@ pub async fn update(
     let mut q = db.query(
         "UPDATE type::record($id) MERGE { \
          name: $name, \
+         aliases: $aliases, \
          description: $description, \
          personality: $personality, \
          background: $background, \
@@ -78,6 +83,7 @@ pub async fn update(
     )
     .bind(("id", RecordId::new("character", id)))
     .bind(("name", name.to_string()))
+    .bind(("aliases", aliases))
     .bind(("description", description.to_string()))
     .bind(("personality", personality.to_string()))
     .bind(("background", background.to_string()))

@@ -37,6 +37,7 @@ export interface Character {
   id: string;
   project_id: string;
   name: string;
+  aliases?: string[] | null;
   avatar_url: string | null;
   description: string;
   personality: string;
@@ -104,7 +105,7 @@ export interface NarrativeSession {
   title: string;
   scene: string;
   atmosphere: string;
-  character_states: Record<string, unknown>;
+  timeline_id: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -119,6 +120,7 @@ export interface NarrativeBeat {
   content: string;
   metadata: Record<string, unknown>;
   sort_order: number;
+  timeline_id: string;
   created_at: string;
 }
 

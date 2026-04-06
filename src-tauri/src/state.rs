@@ -61,6 +61,7 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE FIELD project ON character TYPE record<project>;
         DEFINE INDEX idx_character_project ON character FIELDS project;
         DEFINE FIELD name ON character TYPE string;
+        DEFINE FIELD aliases ON character TYPE any DEFAULT [];
         DEFINE FIELD avatar_url ON character TYPE option<string>;
         DEFINE FIELD description ON character TYPE string DEFAULT '';
         DEFINE FIELD personality ON character TYPE string DEFAULT '';
@@ -108,7 +109,7 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE FIELD title ON narrative_session TYPE string DEFAULT '';
         DEFINE FIELD scene ON narrative_session TYPE string DEFAULT '';
         DEFINE FIELD atmosphere ON narrative_session TYPE string DEFAULT '';
-        DEFINE FIELD character_states ON narrative_session TYPE any DEFAULT {};
+        DEFINE FIELD timeline_id ON narrative_session TYPE string DEFAULT 'main';
         DEFINE FIELD status ON narrative_session TYPE string DEFAULT 'active';
         DEFINE FIELD created_at ON narrative_session TYPE datetime DEFAULT time::now();
         DEFINE FIELD updated_at ON narrative_session TYPE datetime DEFAULT time::now();
@@ -123,12 +124,22 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE FIELD content ON narrative_beat TYPE string DEFAULT '';
         DEFINE FIELD metadata ON narrative_beat TYPE any DEFAULT {};
         DEFINE FIELD sort_order ON narrative_beat TYPE int DEFAULT 0;
+        DEFINE FIELD timeline_id ON narrative_beat TYPE string DEFAULT 'main';
         DEFINE FIELD created_at ON narrative_beat TYPE datetime DEFAULT time::now();
 
         DEFINE TABLE faction SCHEMAFULL;
         DEFINE FIELD project ON faction TYPE record<project>;
         DEFINE INDEX idx_faction_project ON faction FIELDS project;
         DEFINE FIELD name ON faction TYPE string;
+
+        DEFINE TABLE character_state TYPE RELATION IN character OUT narrative_beat SCHEMAFULL;
+        DEFINE FIELD emotion ON character_state TYPE string DEFAULT '';
+        DEFINE FIELD location ON character_state TYPE string DEFAULT '';
+        DEFINE FIELD knowledge ON character_state TYPE string DEFAULT '';
+        DEFINE FIELD physical_state ON character_state TYPE string DEFAULT '';
+        DEFINE FIELD created_at ON character_state TYPE datetime DEFAULT time::now();
+        DEFINE INDEX idx_cs_in ON character_state FIELDS in;
+        DEFINE INDEX idx_cs_out ON character_state FIELDS out;
 
         DEFINE TABLE character_relation TYPE RELATION IN character OUT character SCHEMAFULL;
         DEFINE FIELD project ON character_relation TYPE record<project>;

@@ -50,6 +50,8 @@ pub struct Character {
     pub project: RecordId,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub aliases: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_url: Option<String>,
     pub description: String,
     pub personality: String,
@@ -67,6 +69,8 @@ pub struct CharacterWithModelName {
     #[serde(rename = "project_id", with = "rid")]
     pub project: RecordId,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aliases: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_url: Option<String>,
     pub description: String,
@@ -154,7 +158,7 @@ pub struct NarrativeSession {
     pub title: String,
     pub scene: String,
     pub atmosphere: String,
-    pub character_states: serde_json::Value,
+    pub timeline_id: String,
     pub status: String,
     pub created_at: Datetime,
     pub updated_at: Datetime,
@@ -173,6 +177,22 @@ pub struct NarrativeBeat {
     pub content: String,
     pub metadata: serde_json::Value,
     pub sort_order: i64,
+    pub timeline_id: String,
+    pub created_at: Datetime,
+}
+
+#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+pub struct CharacterState {
+    #[serde(with = "rid")]
+    pub id: RecordId,
+    #[serde(rename = "character_id", with = "rid")]
+    pub r#in: RecordId,
+    #[serde(rename = "beat_id", with = "rid")]
+    pub r#out: RecordId,
+    pub emotion: String,
+    pub location: String,
+    pub knowledge: String,
+    pub physical_state: String,
     pub created_at: Datetime,
 }
 

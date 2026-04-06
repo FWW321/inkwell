@@ -3,7 +3,7 @@ use crate::error::{AppError, AppResult};
 use crate::services::{ai_service, context_service};
 use crate::state::Db;
 use serde::{Deserialize, Serialize};
-use surrealdb::types::{RecordId, ToSql, Value};
+use surrealdb::types::{RecordId, SurrealValue, ToSql, Value};
 use tauri::ipc::Channel;
 
 #[derive(Serialize, Clone)]
@@ -23,37 +23,47 @@ pub async fn create_session(
     scene: &str,
 ) -> AppResult<NarrativeSession> {
     let characters = get_project_characters(db, project_id).await?;
-    let mut character_states = serde_json::json!({})
-        .as_object()
-        .unwrap()
-        .clone();
-
-    for ch in &characters {
-        let ch_state = serde_json::json!({
-            "emotion": "平静",
-            "location": scene,
-            "knowledge": ""
-        });
-        character_states.insert(ch.id.key.to_sql(), ch_state);
-    }
 
     db.query(
-        "CREATE narrative_session CONTENT { \
+        "BEGIN; \
+         CREATE narrative_session CONTENT { \
          project: type::record('project', $pid), \
          title: $title, \
          scene: $scene, \
          atmosphere: '', \
-         character_states: $char_states, \
+         timeline_id: 'main', \
          status: 'active' \
-         }"
+         }; \
+         LET $sid = id; \
+         CREATE narrative_beat CONTENT { \
+         session: $sid, \
+         beat_type: 'scene_change', \
+         character_name: '系统', \
+         content: $scene, \
+         sort_order: 0, \
+         timeline_id: 'main' \
+         }; \
+         LET $bid = id; \
+         FOR $ch IN $chars { \
+         RELATE type::record('character', $ch[0])->character_state->type::record('narrative_beat', $bid) \
+         CONTENT { emotion: '平静', location: $scene, knowledge: '', physical_state: '' }; \
+         }; \
+         COMMIT"
     )
     .bind(("pid", project_id.to_string()))
     .bind(("title", title.to_string()))
     .bind(("scene", scene.to_string()))
-    .bind(("char_states", serde_json::Value::Object(character_states)))
+    .bind(("chars", characters.iter().map(|c| (c.id.key.to_sql(), c.name.clone())).collect::<Vec<_>>()))
     .await?
-    .take::<Option<NarrativeSession>>(0)?
-    .ok_or_else(|| AppError::Internal("create narrative_session failed".into()))
+    .check()?;
+
+    let session: Option<NarrativeSession> = db
+        .query("SELECT * FROM narrative_session WHERE project = type::record('project', $pid) ORDER BY created_at DESC LIMIT 1")
+        .bind(("pid", project_id.to_string()))
+        .await?
+        .take::<Option<NarrativeSession>>(0)?;
+
+    session.ok_or_else(|| AppError::Internal("create narrative_session failed".into()))
 }
 
 pub async fn list_sessions(db: &Db, project_id: &str) -> AppResult<Vec<NarrativeSession>> {
@@ -75,9 +85,16 @@ pub async fn delete_session(db: &Db, id: &str) -> AppResult<()> {
         return Err(AppError::NotFound("推演会话不存在".to_string()));
     }
 
-    db.query("BEGIN; DELETE type::record($sid); DELETE FROM narrative_beat WHERE session = $sid; COMMIT")
-        .bind(("sid", sid))
-        .await?;
+    db.query(
+        "BEGIN; \
+         DELETE type::record($sid); \
+         DELETE FROM narrative_beat WHERE session = $sid; \
+         DELETE FROM character_state WHERE out.session = $sid; \
+         COMMIT"
+    )
+    .bind(("sid", sid))
+    .await?
+    .check()?;
     Ok(())
 }
 
@@ -89,6 +106,9 @@ pub async fn list_beats(db: &Db, session_id: &str) -> AppResult<Vec<NarrativeBea
 
 pub async fn delete_beat(db: &Db, id: &str) -> AppResult<()> {
     let _: Option<Value> = db.delete(("narrative_beat", id)).await?;
+    db.query("DELETE FROM character_state WHERE out = type::record('narrative_beat', $bid)")
+        .bind(("bid", id.to_string()))
+        .await?;
     Ok(())
 }
 
@@ -122,7 +142,8 @@ pub async fn add_beat(
          character: if $has_char { type::record('character', $cid) } else { NONE }, \
          character_name: $char_name, \
          content: $content, \
-         sort_order: $sort_order \
+         sort_order: $sort_order, \
+         timeline_id: 'main' \
          }; \
          UPDATE type::record('narrative_session', $sid) SET status = 'active'; \
          COMMIT"
@@ -167,12 +188,14 @@ pub async fn advance_narration(
     let context_summary = build_context_summary(&recent_beats);
     let worldview_summary = context_service::build_worldview_summary(db, &project_id).await?;
     let characters_summary = build_narrative_characters_summary(&characters);
+    let character_states = query_character_states(db, session_id).await?;
 
     let narrator_preamble = build_narrator_preamble(
         &session,
         &characters_summary,
         &worldview_summary,
         &context_summary,
+        &character_states,
     );
 
     let mut prompt = String::new();
@@ -210,14 +233,15 @@ pub async fn advance_narration(
 
     let max_order: i64 = beats.last().map_or(0, |b| b.sort_order + 1);
 
-    db.query(
+    let _beat: Option<NarrativeBeat> = db.query(
         "BEGIN; \
          CREATE narrative_beat CONTENT { \
          session: type::record('narrative_session', $sid), \
          beat_type: 'narration', \
          character_name: '叙事者', \
          content: $content, \
-         sort_order: $sort_order \
+         sort_order: $sort_order, \
+         timeline_id: 'main' \
          }; \
          UPDATE type::record('narrative_session', $sid) MERGE { scene: $scene, status: 'active' }; \
          COMMIT"
@@ -226,7 +250,9 @@ pub async fn advance_narration(
     .bind(("content", full_text))
     .bind(("sort_order", max_order))
     .bind(("scene", session.scene))
-    .await?;
+    .await?
+    .check()?
+    .take::<Option<NarrativeBeat>>(1)?;
 
     let _ = on_chunk.send(NarrativeStreamChunk {
         beat_id,
@@ -262,6 +288,7 @@ pub async fn invoke_character(
     let context_summary = build_context_summary(&recent_beats);
     let worldview_summary = context_service::build_worldview_summary(db, &project_id).await?;
     let characters_summary = build_narrative_characters_summary(&all_characters);
+    let character_states = query_character_states(db, session_id).await?;
 
     let character_config = match &character.model {
         Some(mid) => {
@@ -277,6 +304,7 @@ pub async fn invoke_character(
         &worldview_summary,
         &context_summary,
         &session.scene,
+        &character_states,
     );
 
     let mut prompt = String::new();
@@ -321,7 +349,8 @@ pub async fn invoke_character(
          character: type::record('character', $cid), \
          character_name: $char_name, \
          content: $content, \
-         sort_order: $sort_order \
+         sort_order: $sort_order, \
+         timeline_id: 'main' \
          }; \
          UPDATE type::record('narrative_session', $sid) SET status = 'active'; \
          COMMIT"
@@ -331,7 +360,8 @@ pub async fn invoke_character(
     .bind(("char_name", character.name.clone()))
     .bind(("content", full_text))
     .bind(("sort_order", max_order))
-    .await?;
+    .await?
+    .check()?;
 
     let _ = on_chunk.send(NarrativeStreamChunk {
         beat_id,
@@ -343,6 +373,49 @@ pub async fn invoke_character(
     });
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct CharacterStateView {
+    pub name: String,
+    pub emotion: String,
+    pub location: String,
+    pub knowledge: String,
+    pub physical_state: String,
+}
+
+pub async fn query_character_states(db: &Db, session_id: &str) -> AppResult<Vec<CharacterStateView>> {
+    #[derive(Debug, Clone, SurrealValue)]
+    struct StateRow {
+        character_name: String,
+        emotion: String,
+        location: String,
+        knowledge: String,
+        physical_state: String,
+    }
+
+    let rows: Vec<StateRow> = db
+        .query(
+            "SELECT in.name AS character_name, emotion, location, knowledge, physical_state \
+             FROM character_state \
+             WHERE out.session = type::record('narrative_session', $sid) \
+             ORDER BY out.sort_order DESC \
+             LIMIT 1 BY in"
+        )
+        .bind(("sid", session_id.to_string()))
+        .await?
+        .take::<Vec<StateRow>>(0)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| CharacterStateView {
+            name: r.character_name,
+            emotion: r.emotion,
+            location: r.location,
+            knowledge: r.knowledge,
+            physical_state: r.physical_state,
+        })
+        .collect())
 }
 
 async fn get_narrator_config(db: &Db, default_config: &AiConfig) -> AppResult<AiConfig> {
@@ -365,6 +438,7 @@ fn build_narrator_preamble(
     characters_summary: &str,
     worldview_summary: &str,
     context_summary: &str,
+    character_states: &[CharacterStateView],
 ) -> String {
     let mut parts = Vec::new();
 
@@ -377,6 +451,20 @@ fn build_narrator_preamble(
     parts.push(format!("\n当前场景：{}", session.scene));
     if !session.atmosphere.is_empty() {
         parts.push(format!("氛围：{}", session.atmosphere));
+    }
+
+    if !character_states.is_empty() {
+        parts.push("\n角色当前状态：".to_string());
+        for cs in character_states {
+            let mut info = format!("- {}：情绪 {}", cs.name, cs.emotion);
+            if !cs.location.is_empty() {
+                info.push_str(&format!("，位于 {}", cs.location));
+            }
+            if !cs.physical_state.is_empty() {
+                info.push_str(&format!("，{}", cs.physical_state));
+            }
+            parts.push(info);
+        }
     }
 
     if !characters_summary.is_empty() {
@@ -400,6 +488,7 @@ fn build_character_preamble(
     worldview_summary: &str,
     context_summary: &str,
     current_scene: &str,
+    character_states: &[CharacterStateView],
 ) -> String {
     let mut parts = Vec::new();
 
@@ -419,6 +508,23 @@ fn build_character_preamble(
     }
 
     parts.push(format!("\n当前场景：{}", current_scene));
+
+    if let Some(self_state) = character_states.iter().find(|s| s.name == character.name) {
+        let mut state_info = "你当前状态：".to_string();
+        if !self_state.emotion.is_empty() {
+            state_info.push_str(&format!("情绪 {}", self_state.emotion));
+        }
+        if !self_state.location.is_empty() {
+            state_info.push_str(&format!("，位于 {}", self_state.location));
+        }
+        if !self_state.knowledge.is_empty() {
+            state_info.push_str(&format!("，已知 {}", self_state.knowledge));
+        }
+        if !self_state.physical_state.is_empty() {
+            state_info.push_str(&format!("，{}", self_state.physical_state));
+        }
+        parts.push(state_info);
+    }
 
     if !characters_summary.is_empty() {
         parts.push(format!("\n其他角色：\n{}", characters_summary));
