@@ -1,15 +1,15 @@
+use crate::db::Store;
 use crate::db::models::WorldviewEntry;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::state::Db;
-use surrealdb::types::RecordId;
 
 pub async fn list(db: &Db, project_id: &str) -> AppResult<Vec<WorldviewEntry>> {
-    db.query("SELECT * FROM worldview_entry WHERE project = $pid ORDER BY category, title")
-        .bind(("pid", RecordId::new("project", project_id)))
-        .await?
-        .check()?
-        .take::<Vec<WorldviewEntry>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find("worldview_entry")
+        .filter_ref("project", "project", project_id)
+        .order("category, title")
+        .all()
+        .await
 }
 
 pub async fn create(
@@ -19,15 +19,14 @@ pub async fn create(
     title: &str,
     content: &str,
 ) -> AppResult<WorldviewEntry> {
-    db.query("CREATE worldview_entry CONTENT { project: type::record('project', $pid), category: $category, title: $title, content: $content }")
-        .bind(("pid", project_id.to_string()))
-        .bind(("category", category.to_string()))
-        .bind(("title", title.to_string()))
-        .bind(("content", content.to_string()))
-        .await?
-        .check()?
-        .take::<Option<WorldviewEntry>>(0)?
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("create worldview_entry failed")))
+    Store::new(db)
+        .content("worldview_entry")
+        .ref_id("project", "project", project_id)
+        .field("category", category)
+        .field("title", title)
+        .field("content", content)
+        .exec::<WorldviewEntry>()
+        .await
 }
 
 pub async fn update(
@@ -37,26 +36,16 @@ pub async fn update(
     title: &str,
     content: &str,
 ) -> AppResult<WorldviewEntry> {
-    db.query("UPDATE type::record($id) SET category = $category, title = $title, content = $content, updated_at = time::now()")
-        .bind(("id", RecordId::new("worldview_entry", id)))
-        .bind(("category", category.to_string()))
-        .bind(("title", title.to_string()))
-        .bind(("content", content.to_string()))
-        .await?
-        .check()?;
-
-    db.select(("worldview_entry", id))
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("WorldviewEntry {} not found", id)))
+    Store::new(db)
+        .update("worldview_entry", id)
+        .set("category", category)
+        .set("title", title)
+        .set("content", content)
+        .touch()
+        .get::<WorldviewEntry>()
+        .await
 }
 
 pub async fn delete(db: &Db, id: &str) -> AppResult<()> {
-    let deleted: Option<WorldviewEntry> = db.delete(("worldview_entry", id)).await?;
-    if deleted.is_none() {
-        return Err(AppError::NotFound(format!(
-            "WorldviewEntry {} not found",
-            id
-        )));
-    }
-    Ok(())
+    Store::new(db).delete("worldview_entry", id).await
 }

@@ -1,9 +1,9 @@
+use crate::db::Store;
 use crate::db::models::WritingReview;
 use crate::error::{AppError, AppResult};
 use crate::services::context_service;
 use crate::state::Db;
 use serde::{Deserialize, Serialize};
-use surrealdb::types::{RecordId, ToSql};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewIssue {
@@ -39,10 +39,7 @@ pub async fn review_beat(
     beat_type: &str,
     agent_id: Option<&str>,
 ) -> AppResult<AggregateReview> {
-    let agent_config = match agent_id {
-        Some(id) => crate::services::agent_service::get_agent_config(db, id).await?,
-        None => crate::services::agent_service::get_agent_by_name(db, "质量审查").await?,
-    };
+    let agent_config = crate::services::agent_service::resolve_agent(db, agent_id, "质量审查", None).await?;
 
     let contract =
         context_service::build_contract(db, &get_project_id(db, session_id).await?, session_id)
@@ -118,12 +115,12 @@ pub async fn list_reviews(
     db: &crate::state::Db,
     session_id: &str,
 ) -> AppResult<Vec<WritingReview>> {
-    db.query("SELECT * FROM writing_review WHERE session = $sid ORDER BY created_at DESC")
-        .bind(("sid", RecordId::new("narrative_session", session_id)))
-        .await?
-        .check()?
-        .take::<Vec<WritingReview>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find("writing_review")
+        .filter_ref("session", "narrative_session", session_id)
+        .order("created_at DESC")
+        .all()
+        .await
 }
 
 fn build_review_prompt(
@@ -189,14 +186,10 @@ struct ParsedReview {
 }
 
 fn parse_review_response(response: &str) -> AppResult<ParsedReview> {
-    let clean = response
-        .trim()
-        .trim_start_matches("```json")
-        .trim_end_matches("```")
-        .trim();
-
-    let v: serde_json::Value = serde_json::from_str(clean)
-        .map_err(|_| AppError::Ai("审查结果格式错误，请重试".to_string()))?;
+    let v: serde_json::Value = crate::services::ai_service::parse_json_response(
+        response,
+        "审查结果格式错误，请重试",
+    )?;
 
     let score = v
         .get("score")
@@ -242,36 +235,28 @@ async fn save_review(
     issues: &serde_json::Value,
     summary: &str,
 ) -> AppResult<()> {
-    db.query(
-        "CREATE writing_review CONTENT { \
-         session: type::record('narrative_session', $sid), \
-         beat: type::record('narrative_beat', $bid), \
-         dimension: $dim, \
-         score: $score, \
-         passed: $passed, \
-         issues: $issues, \
-         summary: $summary \
-         }",
-    )
-    .bind(("sid", session_id.to_string()))
-    .bind(("bid", beat_id.to_string()))
-    .bind(("dim", dimension.to_string()))
-    .bind(("score", score))
-    .bind(("passed", passed))
-    .bind(("issues", issues.clone()))
-    .bind(("summary", summary.to_string()))
-    .await?
-    .check()?;
+    Store::new(db)
+        .content("writing_review")
+        .ref_id("session", "narrative_session", session_id)
+        .ref_id("beat", "narrative_beat", beat_id)
+        .field("dimension", dimension)
+        .field("score", score)
+        .field("passed", passed)
+        .field("issues", issues)
+        .field("summary", summary)
+        .exec::<WritingReview>()
+        .await?;
     Ok(())
 }
 
 async fn get_project_id(db: &crate::state::Db, session_id: &str) -> AppResult<String> {
-    let result: Option<String> = db
-        .query("SELECT VALUE project.id FROM narrative_session WHERE id = $sid")
-        .bind(("sid", RecordId::new("narrative_session", session_id)))
-        .await?
-        .check()?
-        .take::<Option<String>>(0)?;
+    let result: Option<String> = Store::new(db)
+        .find("narrative_session")
+        .project("VALUE project.id")
+        .filter_ref("id", "narrative_session", session_id)
+        .one()
+        .await
+        .ok();
 
     result.ok_or_else(|| crate::error::AppError::NotFound("会话不存在".to_string()))
 }

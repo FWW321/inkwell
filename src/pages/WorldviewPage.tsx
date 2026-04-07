@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   Plus,
@@ -32,6 +32,8 @@ import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyCont
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectContent, SelectGroup, SelectItem, SelectValue } from "@/components/ui/select";
+import { useResource } from "@/hooks/useResource";
+import { useDialog } from "@/hooks/useDialog";
 
 const categories = [
   { key: "all", label: "全部", icon: Globe },
@@ -210,43 +212,24 @@ const EntryCard = ({
 
 const WorldviewPage = () => {
   const { projectId } = useParams<{ projectId: string }>();
-  const [entries, setEntries] = useState<WorldviewEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { items: entries, loading, append, replace, remove } = useResource(
+    () => worldviewApi.list(projectId!),
+    [projectId],
+  );
+  const dialog = useDialog();
   const [activeCategory, setActiveCategory] = useState("all");
-  const [showCreate, setShowCreate] = useState(false);
   const [newCategory, setNewCategory] = useState("geography");
   const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState("");
 
-  const loadEntries = async () => {
-    if (!projectId) return;
-    try {
-      const data = await worldviewApi.list(projectId);
-      setEntries(data);
-    } catch (err) {
-      console.error("Failed to load worldview:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadEntries();
-  }, [projectId]);
-
   const handleCreate = async () => {
     if (!projectId || !newTitle.trim()) return;
     try {
-      const entry = await worldviewApi.create(
-        projectId,
-        newCategory,
-        newTitle.trim(),
-        newContent.trim(),
-      );
-      setEntries((prev) => [...prev, entry]);
+      const entry = await worldviewApi.create(projectId, newCategory, newTitle.trim(), newContent.trim());
+      append(entry);
       setNewTitle("");
       setNewContent("");
-      setShowCreate(false);
+      dialog.close();
     } catch (err) {
       console.error("Failed to create entry:", err);
     }
@@ -255,7 +238,7 @@ const WorldviewPage = () => {
   const handleDelete = async (id: string) => {
     try {
       await worldviewApi.delete(id);
-      setEntries((prev) => prev.filter((e) => e.id !== id));
+      remove(id);
     } catch (err) {
       console.error("Failed to delete entry:", err);
     }
@@ -266,15 +249,8 @@ const WorldviewPage = () => {
     data: { category: string; title: string; content: string },
   ) => {
     try {
-      const updated = await worldviewApi.update(
-        id,
-        data.category,
-        data.title,
-        data.content,
-      );
-      setEntries((prev) =>
-        prev.map((e) => (e.id === id ? updated : e)),
-      );
+      const updated = await worldviewApi.update(id, data.category, data.title, data.content);
+      replace(id, updated);
     } catch (err) {
       console.error("Failed to update entry:", err);
     }
@@ -289,7 +265,7 @@ const WorldviewPage = () => {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-5 h-11 shrink-0">
         <h1 className="text-sm font-medium text-foreground">世界观</h1>
-        <Button onClick={() => setShowCreate(true)} data-icon="inline-start">
+        <Button onClick={() => dialog.show()} data-icon="inline-start">
           <Plus />
           新建词条
         </Button>
@@ -333,7 +309,7 @@ const WorldviewPage = () => {
               </EmptyDescription>
               {activeCategory === "all" && (
                 <EmptyContent>
-                  <Button onClick={() => setShowCreate(true)} data-icon="inline-start">
+                  <Button onClick={() => dialog.show()} data-icon="inline-start">
                     <Plus />
                     新建词条
                   </Button>
@@ -355,7 +331,7 @@ const WorldviewPage = () => {
         )}
       </div>
 
-      <Dialog open={showCreate} onOpenChange={(isOpen) => { if (!isOpen) setShowCreate(false); }}>
+      <Dialog open={dialog.open} onOpenChange={dialog.onOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>新建世界观词条</DialogTitle>
@@ -401,7 +377,7 @@ const WorldviewPage = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>
+            <Button variant="outline" onClick={dialog.close}>
               取消
             </Button>
             <Button onClick={handleCreate} disabled={!newTitle.trim()}>

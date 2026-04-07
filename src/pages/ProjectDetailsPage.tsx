@@ -4,6 +4,7 @@ import { Save, Check } from "lucide-react";
 import { projectApi } from "@/lib/api";
 import type { Project, ProjectStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { languages } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,19 +12,6 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectTrigger, SelectContent, SelectGroup, SelectItem, SelectValue } from "@/components/ui/select";
-
-const languages = [
-  { value: "zh", label: "中文" },
-  { value: "zh-TW", label: "繁體中文" },
-  { value: "en", label: "English" },
-  { value: "ja", label: "日本語" },
-  { value: "ko", label: "한국어" },
-  { value: "fr", label: "Français" },
-  { value: "de", label: "Deutsch" },
-  { value: "es", label: "Español" },
-  { value: "pt", label: "Português" },
-  { value: "ru", label: "Русский" },
-] as const;
 
 const statusOptions: { value: ProjectStatus; label: string }[] = [
   { value: "ongoing", label: "连载中" },

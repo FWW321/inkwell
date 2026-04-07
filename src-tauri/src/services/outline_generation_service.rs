@@ -1,11 +1,10 @@
-use crate::db::created_id;
+use crate::db::Store;
 use crate::db::models::OutlineNode;
 use crate::error::AppResult;
 use crate::services::context_service;
 use crate::state::Db;
 use serde::Deserialize;
 use surrealdb::types::ToSql;
-use surrealdb::types::Value;
 
 #[derive(Deserialize)]
 struct ParsedOutlineItem {
@@ -176,14 +175,10 @@ pub async fn expand_chapter_outline(
     )
     .await?;
 
-    let parsed: serde_json::Value = serde_json::from_str(
-        result
-            .trim()
-            .trim_start_matches("```json")
-            .trim_end_matches("```")
-            .trim(),
-    )
-    .map_err(|_| crate::error::AppError::Ai("详细大纲解析失败，请重试".to_string()))?;
+    let parsed: serde_json::Value = crate::services::ai_service::parse_json_response(
+        &result,
+        "详细大纲解析失败，请重试",
+    )?;
 
     let detailed_outline = parsed["outline"]
         .as_str()
@@ -247,32 +242,18 @@ async fn create_volume_node(
 ) -> AppResult<OutlineNode> {
     let content = serde_json::json!({ "outline": item.outline });
 
-    let result: Option<Value> = db
-        .query(
-            "CREATE outline_node CONTENT { \
-         project: type::record('project', $pid), \
-         parent: NONE, \
-         node_type: 'volume', \
-         title: $title, \
-         sort_order: $sort_order, \
-         content_json: $content, \
-         word_count: 0, \
-         status: 'draft' \
-         }",
-        )
-        .bind(("pid", project_id.to_string()))
-        .bind(("title", item.title.to_string()))
-        .bind(("sort_order", sort_order))
-        .bind(("content", content))
-        .await?
-        .check()?
-        .take::<Option<Value>>(0)?;
-
-    let id_str = result.map(|v| created_id(&v)).transpose()?.ok_or_else(|| {
-        crate::error::AppError::Internal(anyhow::anyhow!("create volume node failed"))
-    })?;
-
-    crate::services::outline_service::get_node(db, &id_str).await
+    let node: OutlineNode = Store::new(db)
+        .content("outline_node")
+        .ref_id("project", "project", project_id)
+        .field("node_type", "volume")
+        .field("title", &item.title)
+        .field("sort_order", sort_order)
+        .field("content_json", content)
+        .field("word_count", 0_i64)
+        .field("status", "draft")
+        .exec::<OutlineNode>()
+        .await?;
+    Ok(node)
 }
 
 async fn get_sibling_volumes(
@@ -334,12 +315,5 @@ fn format_chapter_siblings(siblings: &[OutlineNode], exclude_id: &str) -> String
 }
 
 fn parse_outline_items(response: &str) -> Result<Vec<ParsedOutlineItem>, crate::error::AppError> {
-    let clean = response
-        .trim()
-        .trim_start_matches("```json")
-        .trim_end_matches("```")
-        .trim();
-    let items: Vec<ParsedOutlineItem> = serde_json::from_str(clean)
-        .map_err(|_| crate::error::AppError::Ai("大纲生成结果解析失败，请重试".to_string()))?;
-    Ok(items)
+    crate::services::ai_service::parse_json_response(response, "大纲生成结果解析失败，请重试")
 }

@@ -1,3 +1,4 @@
+use crate::db::Store;
 use crate::db::models::AiConfig;
 use crate::error::AppResult;
 use crate::state::Db;
@@ -63,28 +64,26 @@ const PRESETS: &[PresetAgent] = &[
 ];
 
 pub async fn seed_presets(db: &Db) -> AppResult<()> {
+    let store = Store::new(db);
     for preset in PRESETS {
-        let existing: Option<crate::db::models::AiAgent> = db
-            .query("SELECT id FROM ai_agent WHERE name = $name LIMIT 1")
-            .bind(("name", preset.name.to_string()))
-            .await?
-            .check()?
-            .take::<Option<crate::db::models::AiAgent>>(0)?;
+        let existing: Option<crate::db::models::AiAgent> = store
+            .find("ai_agent")
+            .project("id")
+            .filter_eq("name", preset.name)
+            .limit(1)
+            .one()
+            .await
+            .ok();
 
         if existing.is_none() {
-            db.query(
-                "CREATE ai_agent CONTENT { \
-                 name: $name, \
-                 system_prompt: $prompt, \
-                 temperature: $temp, \
-                 is_default: false \
-                 }",
-            )
-            .bind(("name", preset.name.to_string()))
-            .bind(("prompt", preset.system_prompt.to_string()))
-            .bind(("temp", preset.temperature))
-            .await?
-            .check()?;
+            store
+                .content("ai_agent")
+                .field("name", preset.name)
+                .field("system_prompt", preset.system_prompt)
+                .field("temperature", preset.temperature)
+                .field("is_default", false)
+                .exec::<crate::db::models::AiAgent>()
+                .await?;
         }
     }
 
@@ -131,4 +130,19 @@ pub async fn apply_character_template(db: &Db, character_name: &str) -> AppResul
         .system_prompt
         .replace("{character_name}", character_name);
     Ok(config)
+}
+
+pub async fn resolve_agent(
+    db: &Db,
+    agent_id: Option<&str>,
+    fallback_name: &str,
+    character_name: Option<&str>,
+) -> AppResult<AgentConfig> {
+    if let Some(id) = agent_id {
+        return get_agent_config(db, id).await;
+    }
+    if let Some(name) = character_name {
+        return apply_character_template(db, name).await;
+    }
+    get_agent_by_name(db, fallback_name).await
 }

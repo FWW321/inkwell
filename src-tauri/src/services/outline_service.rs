@@ -1,3 +1,4 @@
+use crate::db::Store;
 use crate::db::models::OutlineNode;
 use crate::error::{AppError, AppResult};
 use crate::state::Db;
@@ -8,29 +9,31 @@ pub async fn list_children(
     project_id: &str,
     parent_id: Option<&str>,
 ) -> AppResult<Vec<OutlineNode>> {
-    let sql = if parent_id.is_some() {
-        "SELECT * FROM outline_node WHERE project = $pid AND parent = $parent ORDER BY sort_order ASC"
-    } else {
-        "SELECT * FROM outline_node WHERE project = $pid AND parent IS NONE ORDER BY sort_order ASC"
-    };
-
-    let mut q = db
-        .query(sql)
-        .bind(("pid", RecordId::new("project", project_id)));
-    if let Some(pid) = parent_id {
-        q = q.bind(("parent", RecordId::new("outline_node", pid)));
+    let store = Store::new(db);
+    match parent_id {
+        Some(pid) => {
+            store
+                .find("outline_node")
+                .filter_ref("project", "project", project_id)
+                .filter_ref("parent", "outline_node", pid)
+                .order("sort_order ASC")
+                .all()
+                .await
+        }
+        None => {
+            store
+                .find("outline_node")
+                .filter_ref("project", "project", project_id)
+                .filter_is_none("parent")
+                .order("sort_order ASC")
+                .all()
+                .await
+        }
     }
-
-    q.await?
-        .check()?
-        .take::<Vec<OutlineNode>>(0)
-        .map_err(Into::into)
 }
 
 pub async fn get_node(db: &Db, id: &str) -> AppResult<OutlineNode> {
-    db.select(("outline_node", id))
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("节点 {} 不存在", id)))
+    Store::new(db).get("outline_node", id).await
 }
 
 pub async fn create_node(
@@ -50,33 +53,18 @@ pub async fn create_node(
     }
 
     let sort_order = next_sort_order(db, project_id, parent_id).await?;
-    let has_parent = parent_id.is_some();
 
-    let mut q = db
-        .query(
-            "CREATE outline_node CONTENT { \
-         project: type::record('project', $pid), \
-         parent: if $has_parent { type::record('outline_node', $parent) } else { NONE }, \
-         node_type: $node_type, \
-         title: $title, \
-         sort_order: $sort_order, \
-         word_count: 0, \
-         status: 'draft' \
-         }",
-        )
-        .bind(("pid", project_id.to_string()))
-        .bind(("has_parent", has_parent))
-        .bind(("node_type", node_type.to_string()))
-        .bind(("title", title.to_string()))
-        .bind(("sort_order", sort_order));
-    if let Some(pid) = parent_id {
-        q = q.bind(("parent", pid.to_string()));
-    }
-
-    q.await?
-        .check()?
-        .take::<Option<OutlineNode>>(0)?
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("create outline_node failed")))
+    Store::new(db)
+        .content("outline_node")
+        .ref_id("project", "project", project_id)
+        .opt_ref("parent", "outline_node", parent_id)
+        .field("node_type", node_type)
+        .field("title", title)
+        .field("sort_order", sort_order)
+        .field("word_count", 0_i64)
+        .field("status", "draft")
+        .exec::<OutlineNode>()
+        .await
 }
 
 pub async fn update_node(
@@ -87,26 +75,24 @@ pub async fn update_node(
     word_count: i64,
     status: &str,
 ) -> AppResult<OutlineNode> {
-    db.query("UPDATE type::record($id) SET title = $title, content_json = $content_json, word_count = $word_count, status = $status, updated_at = time::now()")
-        .bind(("id", RecordId::new("outline_node", id)))
-        .bind(("title", title.to_string()))
-        .bind(("content_json", content_json))
-        .bind(("word_count", word_count))
-        .bind(("status", status.to_string()))
-        .await?
-        .check()?;
-
-    get_node(db, id).await
+    Store::new(db)
+        .update("outline_node", id)
+        .set("title", title)
+        .set("content_json", content_json)
+        .set("word_count", word_count)
+        .set("status", status)
+        .touch()
+        .get::<OutlineNode>()
+        .await
 }
 
 pub async fn rename_node(db: &Db, id: &str, title: &str) -> AppResult<OutlineNode> {
-    db.query("UPDATE type::record($id) SET title = $title, updated_at = time::now()")
-        .bind(("id", RecordId::new("outline_node", id)))
-        .bind(("title", title.to_string()))
-        .await?
-        .check()?;
-
-    get_node(db, id).await
+    Store::new(db)
+        .update("outline_node", id)
+        .set("title", title)
+        .touch()
+        .get::<OutlineNode>()
+        .await
 }
 
 pub async fn delete_node(db: &Db, id: &str) -> AppResult<()> {
@@ -149,7 +135,7 @@ async fn collect_descendant_ids(db: &Db, parent_id: &str) -> AppResult<Vec<Strin
 pub async fn reorder_nodes(
     db: &Db,
     _project_id: &str,
-    parent_id: Option<&str>,
+    _parent_id: Option<&str>,
     node_ids: &[String],
 ) -> AppResult<()> {
     let items: Vec<(String, i64)> = node_ids
@@ -171,42 +157,58 @@ pub async fn save_diff(
     new_text: &str,
     mode: &str,
 ) -> AppResult<()> {
-    db.query("UPDATE type::record($id) SET diff_original = $orig, diff_new = $new, diff_mode = $mode, updated_at = time::now()")
-        .bind(("id", RecordId::new("outline_node", id)))
-        .bind(("orig", original_text.to_string()))
-        .bind(("new", new_text.to_string()))
-        .bind(("mode", mode.to_string()))
-        .await?
-        .check()?;
-    Ok(())
+    Store::new(db)
+        .update("outline_node", id)
+        .set("diff_original", original_text)
+        .set("diff_new", new_text)
+        .set("diff_mode", mode)
+        .touch()
+        .exec()
+        .await
 }
 
 pub async fn clear_diff(db: &Db, id: &str) -> AppResult<()> {
-    db.query("UPDATE type::record($id) SET diff_original = NONE, diff_new = NONE, diff_mode = NONE, updated_at = time::now()")
-        .bind(("id", RecordId::new("outline_node", id)))
-        .await?
-        .check()?;
-    Ok(())
+    Store::new(db)
+        .update("outline_node", id)
+        .set_none("diff_original")
+        .set_none("diff_new")
+        .set_none("diff_mode")
+        .touch()
+        .exec()
+        .await
 }
 
 async fn next_sort_order(db: &Db, project_id: &str, parent_id: Option<&str>) -> AppResult<i64> {
     let result: Option<i64> = if let Some(pid) = parent_id {
-        db.query("SELECT VALUE sort_order FROM outline_node WHERE parent = $parent ORDER BY sort_order DESC LIMIT 1")
-            .bind(("parent", RecordId::new("outline_node", pid)))
-            .await?.check()?.take::<Option<i64>>(0)?
+        Store::new(db)
+            .find("outline_node")
+            .project("VALUE sort_order")
+            .filter_ref("parent", "outline_node", pid)
+            .order("sort_order DESC")
+            .limit(1)
+            .one()
+            .await
+            .ok()
     } else {
-        db.query("SELECT VALUE sort_order FROM outline_node WHERE project = $pid AND parent IS NONE ORDER BY sort_order DESC LIMIT 1")
-            .bind(("pid", RecordId::new("project", project_id)))
-            .await?.check()?.take::<Option<i64>>(0)?
+        Store::new(db)
+            .find("outline_node")
+            .project("VALUE sort_order")
+            .filter_ref("project", "project", project_id)
+            .filter_is_none("parent")
+            .order("sort_order DESC")
+            .limit(1)
+            .one()
+            .await
+            .ok()
     };
     Ok(result.map(|v| v + 1).unwrap_or(0))
 }
 
 async fn list_children_by_parent(db: &Db, parent_id: &str) -> AppResult<Vec<OutlineNode>> {
-    db.query("SELECT id FROM outline_node WHERE parent = $parent")
-        .bind(("parent", RecordId::new("outline_node", parent_id)))
-        .await?
-        .check()?
-        .take::<Vec<OutlineNode>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find("outline_node")
+        .project("id")
+        .filter_ref("parent", "outline_node", parent_id)
+        .all()
+        .await
 }

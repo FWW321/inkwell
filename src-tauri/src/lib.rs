@@ -25,6 +25,7 @@ pub fn run() {
         };
 
         let _ = services::agent_service::seed_presets(app_state.db()).await;
+        let _ = services::workflow_service::seed_presets(app_state.db()).await;
 
         let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
 
@@ -98,6 +99,14 @@ pub fn run() {
                 commands::outline_generation::generate_volume_structure,
                 commands::outline_generation::generate_chapter_structure,
                 commands::outline_generation::expand_chapter_outline,
+                commands::workflow::list_workflows,
+                commands::workflow::list_workflow_steps,
+                commands::workflow::get_workflow,
+                commands::workflow::create_workflow,
+                commands::workflow::update_workflow,
+                commands::workflow::delete_workflow,
+                commands::workflow::set_default_workflow,
+                commands::workflow::run_workflow,
             ])
             .run(tauri::generate_context!())
             .expect("error while running tauri application");

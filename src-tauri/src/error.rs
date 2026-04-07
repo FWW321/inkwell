@@ -19,21 +19,60 @@ pub enum AppError {
     Io(#[from] std::io::Error),
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct IpcError {
+    pub code: String,
+    pub message: String,
+}
+
 impl Serialize for AppError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let msg: &str = match self {
-            Self::NotFound(s) | Self::Validation(s) | Self::Ai(s) => s,
-            Self::Internal(_) => "服务内部错误",
-            Self::Database(e) => return serializer.serialize_str(&format!("数据库错误: {}", e)),
-            Self::Serialization(e) => {
-                return serializer.serialize_str(&format!("序列化错误: {}", e));
-            }
-            Self::Io(e) => return serializer.serialize_str(&format!("IO 错误: {}", e)),
-        };
-        serializer.serialize_str(msg)
+        let ipc: IpcError = self.into();
+        ipc.serialize(serializer)
+    }
+}
+
+impl From<&AppError> for IpcError {
+    fn from(e: &AppError) -> Self {
+        match e {
+            AppError::NotFound(m) => IpcError {
+                code: "NOT_FOUND".into(),
+                message: m.clone(),
+            },
+            AppError::Validation(m) => IpcError {
+                code: "VALIDATION".into(),
+                message: m.clone(),
+            },
+            AppError::Ai(m) => IpcError {
+                code: "AI_ERROR".into(),
+                message: m.clone(),
+            },
+            AppError::Database(d) => IpcError {
+                code: "DB_ERROR".into(),
+                message: format!("数据库错误: {}", d),
+            },
+            AppError::Internal(_) => IpcError {
+                code: "INTERNAL".into(),
+                message: "服务内部错误".into(),
+            },
+            AppError::Serialization(_) => IpcError {
+                code: "INTERNAL".into(),
+                message: "数据序列化失败".into(),
+            },
+            AppError::Io(_) => IpcError {
+                code: "INTERNAL".into(),
+                message: "IO 错误".into(),
+            },
+        }
+    }
+}
+
+impl From<AppError> for IpcError {
+    fn from(e: AppError) -> Self {
+        IpcError::from(&e)
     }
 }
 

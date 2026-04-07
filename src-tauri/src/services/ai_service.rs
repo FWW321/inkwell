@@ -3,6 +3,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tauri::ipc::Channel;
 
+use crate::db::Store;
 use crate::db::created_id;
 use crate::db::models::{AiAgent, AiAgentWithModelName, AiConfig};
 use crate::error::{AppError, AppResult};
@@ -89,19 +90,21 @@ pub async fn fetch_available_models(
 }
 
 pub async fn list_models(db: &Db) -> AppResult<Vec<AiConfig>> {
-    db.query("SELECT * FROM ai_model ORDER BY is_default DESC, created_at ASC")
-        .await?
-        .check()?
-        .take::<Vec<AiConfig>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find("ai_model")
+        .order("is_default DESC, created_at ASC")
+        .all()
+        .await
 }
 
 pub async fn get_default_config(db: &Db) -> AppResult<AiConfig> {
-    let result: Option<AiConfig> = db
-        .query("SELECT * FROM ai_model WHERE is_default = true LIMIT 1")
-        .await?
-        .check()?
-        .take::<Option<AiConfig>>(0)?;
+    let result: Option<AiConfig> = Store::new(db)
+        .find("ai_model")
+        .filter_eq("is_default", true)
+        .limit(1)
+        .one()
+        .await
+        .ok();
 
     match result {
         Some(c) => Ok(c),
@@ -114,9 +117,7 @@ pub async fn get_default_config(db: &Db) -> AppResult<AiConfig> {
 }
 
 pub async fn get_model(db: &Db, id: &str) -> AppResult<AiConfig> {
-    db.select(("ai_model", id))
-        .await?
-        .ok_or_else(|| AppError::NotFound("模型不存在".to_string()))
+    Store::new(db).get("ai_model", id).await
 }
 
 const AGENT_LIST_SQL: &str = "SELECT id, name, IF model != NONE { record::id(model) } ELSE { NONE } AS model_id, model.name AS model_name, system_prompt, temperature, is_default, created_at FROM ai_agent ORDER BY is_default DESC, created_at ASC FETCH model";
@@ -612,4 +613,14 @@ pub async fn clear_chat_history(db: &Db, project_id: &str) -> AppResult<()> {
         .await?
         .check()?;
     Ok(())
+}
+
+pub fn parse_json_response<T: serde::de::DeserializeOwned>(response: &str, error_msg: &str) -> AppResult<T> {
+    let clean = response
+        .trim()
+        .trim_start_matches("```json")
+        .trim_end_matches("```")
+        .trim();
+    serde_json::from_str(clean)
+        .map_err(|_| AppError::Ai(error_msg.to_string()))
 }

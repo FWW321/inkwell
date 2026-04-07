@@ -208,6 +208,26 @@ async fn init_schema(db: &Db) -> AppResult<()> {
         DEFINE FIELD start_chapter ON character_faction TYPE option<record<outline_node>>;
         DEFINE FIELD end_chapter ON character_faction TYPE option<record<outline_node>>;
         DEFINE FIELD created_at ON character_faction TYPE datetime DEFAULT time::now();
+
+        DEFINE TABLE workflow SCHEMAFULL;
+        DEFINE FIELD name ON workflow TYPE string;
+        DEFINE FIELD description ON workflow TYPE string DEFAULT '';
+        DEFINE FIELD is_preset ON workflow TYPE bool DEFAULT false;
+        DEFINE FIELD is_default ON workflow TYPE bool DEFAULT false;
+        DEFINE FIELD step_count ON workflow TYPE int DEFAULT 0;
+        DEFINE FIELD created_at ON workflow TYPE datetime DEFAULT time::now();
+        DEFINE FIELD updated_at ON workflow TYPE datetime DEFAULT time::now();
+
+        DEFINE TABLE workflow_step SCHEMAFULL;
+        DEFINE FIELD workflow ON workflow_step TYPE record<workflow>;
+        DEFINE INDEX idx_workflow_step_workflow ON workflow_step FIELDS workflow;
+        DEFINE INDEX idx_workflow_step_workflow_order ON workflow_step FIELDS workflow, sort_order;
+        DEFINE FIELD sort_order ON workflow_step TYPE int DEFAULT 0;
+        DEFINE FIELD step_type ON workflow_step TYPE string;
+        DEFINE FIELD agent ON workflow_step TYPE option<record<ai_agent>>;
+        DEFINE FIELD condition ON workflow_step TYPE option<object>;
+        DEFINE FIELD config ON workflow_step TYPE object DEFAULT {};
+        DEFINE FIELD enabled ON workflow_step TYPE bool DEFAULT true;
     "#).await?;
 
     Ok(())

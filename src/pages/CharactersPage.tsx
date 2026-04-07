@@ -29,6 +29,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectTrigger, SelectContent, SelectGroup, SelectItem, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import CharacterGraph from "@/components/character/CharacterGraph";
+import { useResource } from "@/hooks/useResource";
+import { useDialog } from "@/hooks/useDialog";
 
 const CharacterCard = ({
   character,
@@ -45,6 +47,7 @@ const CharacterCard = ({
   onDelete: () => void;
   onUpdate: (data: {
     name: string;
+    aliases: unknown[] | null;
     description: string;
     personality: string;
     background: string;
@@ -64,7 +67,7 @@ const CharacterCard = ({
   const [expanded, setExpanded] = useState(false);
 
   const handleSave = async () => {
-    await onUpdate({ name, description, personality, background, race, modelId: modelId || null });
+    await onUpdate({ name, aliases: character.aliases, description, personality, background, race, modelId: modelId || null });
     setEditing(false);
   };
 
@@ -336,41 +339,34 @@ const CharacterCard = ({
 
 const CharactersPage = () => {
   const { projectId } = useParams<{ projectId: string }>();
-  const [characters, setCharacters] = useState<Character[]>([]);
+  const { items: characters, loading, append, replace, remove } = useResource(
+    () => characterApi.list(projectId!),
+    [projectId],
+  );
+  const dialog = useDialog();
+
   const [models, setModels] = useState<AiConfig[]>([]);
   const [relations, setRelations] = useState<CharacterRelation[]>([]);
   const [factions, setFactions] = useState<CharacterFaction[]>([]);
   const [raceEntries, setRaceEntries] = useState<WorldviewEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newModelId, setNewModelId] = useState("");
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "graph">("list");
 
-  const loadData = async () => {
+  useEffect(() => {
     if (!projectId) return;
-    try {
-      const [charData, modelData, relData, facData, worldviewData] = await Promise.all([
-        characterApi.list(projectId),
-        aiApi.listModels(),
-        relationApi.listRelations(projectId),
-        relationApi.listFactions(projectId),
-        worldviewApi.list(projectId),
-      ]);
-      setCharacters(charData);
+    Promise.all([
+      aiApi.listModels(),
+      relationApi.listRelations(projectId),
+      relationApi.listFactions(projectId),
+      worldviewApi.list(projectId),
+    ]).then(([modelData, relData, facData, worldviewData]) => {
       setModels(modelData);
       setRelations(relData);
       setFactions(facData);
       setRaceEntries(worldviewData.filter((e) => e.category === "race"));
-    } catch (err) {
-      console.error("Failed to load characters:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
+    }).catch((err) => console.error("Failed to load auxiliary data:", err));
   }, [projectId]);
 
   const handleCreate = async () => {
@@ -379,16 +375,17 @@ const CharactersPage = () => {
       const character = await characterApi.create(
         projectId,
         newName.trim(),
+        [],
         "",
         "",
         "",
         "",
         newModelId || null,
       );
-      setCharacters((prev) => [...prev, character]);
+      append(character);
       setNewName("");
       setNewModelId("");
-      setShowCreate(false);
+      dialog.close();
     } catch (err) {
       console.error("Failed to create character:", err);
     }
@@ -397,7 +394,7 @@ const CharactersPage = () => {
   const handleDelete = async (id: string) => {
     try {
       await characterApi.delete(id);
-      setCharacters((prev) => prev.filter((c) => c.id !== id));
+      remove(id);
     } catch (err) {
       console.error("Failed to delete character:", err);
     }
@@ -407,6 +404,7 @@ const CharactersPage = () => {
     id: string,
     data: {
       name: string;
+      aliases: unknown[] | null;
       description: string;
       personality: string;
       background: string;
@@ -418,29 +416,27 @@ const CharactersPage = () => {
       const updated = await characterApi.update(
         id,
         data.name,
+        data.aliases ?? [],
         data.description,
         data.personality,
         data.background,
         data.race,
         data.modelId,
       );
-      setCharacters((prev) =>
-        prev.map((c) => (c.id === id ? updated : c)),
-      );
+      replace(id, updated);
     } catch (err) {
       console.error("Failed to update character:", err);
     }
   };
 
   const filteredCharacters = search.trim()
-    ? characters.filter((c) =>
-        c.name.toLowerCase().includes(search.toLowerCase()) ||
-        c.description.toLowerCase().includes(search.toLowerCase()) ||
-        c.race.toLowerCase().includes(search.toLowerCase()),
+    ? characters.filter(
+        (c) =>
+          c.name.toLowerCase().includes(search.toLowerCase()) ||
+          (c.description ?? "").toLowerCase().includes(search.toLowerCase()) ||
+          (c.race ?? "").toLowerCase().includes(search.toLowerCase()),
       )
     : characters;
-
-  const [viewMode, setViewMode] = useState<"list" | "graph">("list");
 
   return (
     <div className="flex h-full flex-col">
@@ -461,7 +457,7 @@ const CharactersPage = () => {
           </Tabs>
         </div>
         {viewMode === "list" && (
-          <Button onClick={() => setShowCreate(true)} data-icon="inline-start">
+          <Button onClick={() => dialog.show()} data-icon="inline-start">
             <Plus />
             新建角色
           </Button>
@@ -492,7 +488,7 @@ const CharactersPage = () => {
               <EmptyTitle>还没有角色</EmptyTitle>
               <EmptyDescription>创建你的第一个角色</EmptyDescription>
               <EmptyContent>
-                <Button onClick={() => setShowCreate(true)} data-icon="inline-start">
+                <Button onClick={() => dialog.show()} data-icon="inline-start">
                   <Plus />
                   新建角色
                 </Button>
@@ -535,7 +531,7 @@ const CharactersPage = () => {
         )}
       </div>
 
-      <Dialog open={showCreate} onOpenChange={(isOpen) => { if (!isOpen) setShowCreate(false); }}>
+      <Dialog open={dialog.open} onOpenChange={dialog.onOpenChange}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>新建角色</DialogTitle>
@@ -595,7 +591,7 @@ const CharactersPage = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>
+            <Button variant="outline" onClick={dialog.close}>
               取消
             </Button>
             <Button onClick={handleCreate} disabled={!newName.trim()}>

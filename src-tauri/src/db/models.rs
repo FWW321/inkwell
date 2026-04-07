@@ -1,7 +1,7 @@
 use crate::serde_helpers::{opt_rid, rid};
 use surrealdb::types::{Datetime, RecordId, SurrealValue};
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct Project {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -17,7 +17,7 @@ pub struct Project {
     pub updated_at: Datetime,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct OutlineNode {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -45,7 +45,7 @@ pub struct OutlineNode {
     pub updated_at: Datetime,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct Character {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -69,7 +69,7 @@ pub struct Character {
     pub created_at: Datetime,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct CharacterWithModelName {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -85,7 +85,7 @@ pub struct CharacterWithModelName {
     pub background: String,
     pub race: String,
     #[serde(
-        rename = "model_id",
+        rename = "_model_ref",
         with = "opt_rid",
         skip_serializing_if = "Option::is_none"
     )]
@@ -97,7 +97,7 @@ pub struct CharacterWithModelName {
     pub model_name: Option<String>,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct Faction {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -106,7 +106,7 @@ pub struct Faction {
     pub name: String,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct WorldviewEntry {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -120,7 +120,7 @@ pub struct WorldviewEntry {
     pub updated_at: Option<Datetime>,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct AiConfig {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -157,7 +157,7 @@ impl From<AiConfig> for AiConfigPublic {
     }
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct AiAgent {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -174,7 +174,7 @@ pub struct AiAgent {
     pub created_at: Datetime,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct AiAgentWithModelName {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -189,7 +189,7 @@ pub struct AiAgentWithModelName {
     pub model_name: Option<String>,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct NarrativeSession {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -205,7 +205,7 @@ pub struct NarrativeSession {
     pub updated_at: Datetime,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct NarrativeBeat {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -232,7 +232,7 @@ pub struct NarrativeBeat {
     pub created_at: Datetime,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct NarrativeEvent {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -253,7 +253,7 @@ pub struct NarrativeEvent {
     pub created_at: Datetime,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct WritingReview {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -284,7 +284,7 @@ pub struct CharacterState {
     pub created_at: Datetime,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct CharacterRelation {
     #[serde(with = "rid")]
     pub id: RecordId,
@@ -310,7 +310,40 @@ pub struct CharacterRelation {
     pub created_at: Datetime,
 }
 
-#[derive(Debug, Clone, SurrealValue, serde::Serialize)]
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
+pub struct Workflow {
+    #[serde(with = "rid")]
+    pub id: RecordId,
+    pub name: String,
+    pub description: String,
+    pub is_preset: bool,
+    pub is_default: bool,
+    pub step_count: i64,
+    pub created_at: Datetime,
+    pub updated_at: Datetime,
+}
+
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
+pub struct WorkflowStep {
+    #[serde(with = "rid")]
+    pub id: RecordId,
+    #[serde(rename = "workflow_id", with = "rid")]
+    pub workflow: RecordId,
+    pub sort_order: i64,
+    pub step_type: String,
+    #[serde(
+        rename = "agent_id",
+        with = "opt_rid",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent: Option<RecordId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition: Option<serde_json::Value>,
+    pub config: serde_json::Value,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, SurrealValue, serde::Serialize, serde::Deserialize)]
 pub struct CharacterFaction {
     #[serde(with = "rid")]
     pub id: RecordId,

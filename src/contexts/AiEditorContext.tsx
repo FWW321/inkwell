@@ -4,6 +4,7 @@ import type { Editor } from "@tiptap/react";
 import type { AiEditorState, StreamChunk, AiAgent } from "@/lib/types";
 import { aiApi } from "@/lib/api";
 import { setDiffText } from "@/extensions/inline-diff";
+import { useStreamingSession } from "@/hooks/useStreamingSession";
 
 export type EditorMode = "polish" | "rewrite" | "dialogue" | "chat";
 
@@ -50,14 +51,14 @@ export function AiEditorProvider({ children }: { children: ReactNode }) {
     hasSelection: false,
   });
 
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
+  const streaming = useStreamingSession();
   const [streamingReasoning, setStreamingReasoning] = useState("");
   const [generatedText, setGeneratedText] = useState("");
   const [activeMode, setActiveMode] = useState<EditorMode>("polish");
   const [agents, setAgents] = useState<AiAgent[]>([]);
   const editorRef = useRef<Editor | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const reasoningRef = useRef("");
 
   const setProjectInfo = useCallback((projectId: string, chapterId: string) => {
     setEditorState((prev) => ({ ...prev, projectId, chapterId }));
@@ -91,9 +92,6 @@ export function AiEditorProvider({ children }: { children: ReactNode }) {
 
   useState(() => { loadAgents(); });
 
-  const streamRef = useRef("");
-  const reasoningRef = useRef("");
-
   const startStreaming = useCallback(
     async (params: {
       text: string;
@@ -112,12 +110,10 @@ export function AiEditorProvider({ children }: { children: ReactNode }) {
         promptText = `[指令: ${params.instruction}]\n\n${promptText}`;
       }
 
-      setIsStreaming(true);
-      setStreamingText("");
-      setStreamingReasoning("");
+      streaming.start();
       setGeneratedText("");
-      streamRef.current = "";
       reasoningRef.current = "";
+      setStreamingReasoning("");
       abortRef.current = new AbortController();
 
       const handleChunk = (chunk: StreamChunk) => {
@@ -127,15 +123,14 @@ export function AiEditorProvider({ children }: { children: ReactNode }) {
           setStreamingReasoning(reasoningRef.current);
         }
         if (chunk.text) {
-          streamRef.current += chunk.text;
-          setStreamingText(streamRef.current);
+          streaming.appendText(chunk.text);
           if (activeMode !== "chat") {
-            setDiffText(streamRef.current);
+            setDiffText(streaming.textRef.current);
           }
         }
         if (chunk.done) {
-          setIsStreaming(false);
-          setGeneratedText(streamRef.current);
+          streaming.finish();
+          setGeneratedText(streaming.textRef.current);
           setStreamingReasoning("");
           reasoningRef.current = "";
         }
@@ -161,16 +156,16 @@ export function AiEditorProvider({ children }: { children: ReactNode }) {
           );
         }
       } catch {
-        setIsStreaming(false);
+        streaming.fail("");
       }
     },
-    [editorState, activeMode, resolveAgentId],
+    [editorState, activeMode, resolveAgentId, streaming],
   );
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
-    setIsStreaming(false);
-  }, []);
+    streaming.finish();
+  }, [streaming]);
 
   const replaceSelection = useCallback((text: string) => {
     if (!editorRef.current) return;
@@ -205,8 +200,8 @@ export function AiEditorProvider({ children }: { children: ReactNode }) {
         editorState,
         setProjectInfo,
         refreshCursor,
-        isStreaming,
-        streamingText,
+        isStreaming: streaming.isStreaming,
+        streamingText: streaming.streamingText,
         streamingReasoning,
         generatedText,
         activeMode,

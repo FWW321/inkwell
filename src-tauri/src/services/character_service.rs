@@ -1,24 +1,25 @@
+use crate::db::Store;
 use crate::db::models::{Character, CharacterWithModelName};
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::state::Db;
-use surrealdb::types::RecordId;
 
 pub async fn list(db: &Db, project_id: &str) -> AppResult<Vec<CharacterWithModelName>> {
-    db.query("SELECT *, model.name AS model_name FROM character WHERE project = $pid ORDER BY name")
-        .bind(("pid", RecordId::new("project", project_id)))
-        .await?
-        .check()?
-        .take::<Vec<CharacterWithModelName>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find("character")
+        .project("*, model.name AS model_name")
+        .filter_ref("project", "project", project_id)
+        .order("name")
+        .all()
+        .await
 }
 
 pub async fn get(db: &Db, id: &str) -> AppResult<CharacterWithModelName> {
-    db.query("SELECT *, model.name AS model_name FROM character WHERE id = $id")
-        .bind(("id", RecordId::new("character", id)))
-        .await?
-        .check()?
-        .take::<Option<CharacterWithModelName>>(0)?
-        .ok_or_else(|| AppError::NotFound(format!("Character {} not found", id)))
+    Store::new(db)
+        .find("character")
+        .project("*, model.name AS model_name")
+        .filter_ref("id", "character", id)
+        .one()
+        .await
 }
 
 pub async fn create(
@@ -32,37 +33,18 @@ pub async fn create(
     race: &str,
     model_id: Option<&str>,
 ) -> AppResult<Character> {
-    let has_model = model_id.is_some();
-
-    let mut q = db
-        .query(
-            "CREATE character CONTENT { \
-         project: type::record('project', $pid), \
-         name: $name, \
-         aliases: $aliases, \
-         description: $description, \
-         personality: $personality, \
-         background: $background, \
-         race: $race, \
-         model: if $has_model { type::record('ai_model', $mid) } else { NONE } \
-         }",
-        )
-        .bind(("pid", project_id.to_string()))
-        .bind(("name", name.to_string()))
-        .bind(("aliases", aliases))
-        .bind(("description", description.to_string()))
-        .bind(("personality", personality.to_string()))
-        .bind(("background", background.to_string()))
-        .bind(("race", race.to_string()))
-        .bind(("has_model", has_model));
-    if let Some(mid) = model_id {
-        q = q.bind(("mid", mid.to_string()));
-    }
-
-    q.await?
-        .check()?
-        .take::<Option<Character>>(0)?
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("create character failed")))
+    Store::new(db)
+        .content("character")
+        .ref_id("project", "project", project_id)
+        .field("name", name)
+        .field("aliases", aliases)
+        .field("description", description)
+        .field("personality", personality)
+        .field("background", background)
+        .field("race", race)
+        .opt_ref("model", "ai_model", model_id)
+        .exec::<Character>()
+        .await
 }
 
 pub async fn update(
@@ -76,42 +58,20 @@ pub async fn update(
     race: &str,
     model_id: Option<&str>,
 ) -> AppResult<Character> {
-    let has_model = model_id.is_some();
-
-    let mut q = db
-        .query(
-            "UPDATE type::record($id) MERGE { \
-         name: $name, \
-         aliases: $aliases, \
-         description: $description, \
-         personality: $personality, \
-         background: $background, \
-         race: $race, \
-         model: if $has_model { type::record('ai_model', $mid) } else { NONE } \
-         }",
-        )
-        .bind(("id", RecordId::new("character", id)))
-        .bind(("name", name.to_string()))
-        .bind(("aliases", aliases))
-        .bind(("description", description.to_string()))
-        .bind(("personality", personality.to_string()))
-        .bind(("background", background.to_string()))
-        .bind(("race", race.to_string()))
-        .bind(("has_model", has_model));
-    if let Some(mid) = model_id {
-        q = q.bind(("mid", mid.to_string()));
-    }
-
-    q.await?
-        .check()?
-        .take::<Option<Character>>(0)?
-        .ok_or_else(|| AppError::NotFound(format!("Character {} not found", id)))
+    Store::new(db)
+        .content("character")
+        .merge_mode(id)
+        .field("name", name)
+        .field("aliases", aliases)
+        .field("description", description)
+        .field("personality", personality)
+        .field("background", background)
+        .field("race", race)
+        .opt_ref("model", "ai_model", model_id)
+        .exec::<Character>()
+        .await
 }
 
 pub async fn delete(db: &Db, id: &str) -> AppResult<()> {
-    let deleted: Option<Character> = db.delete(("character", id)).await?;
-    if deleted.is_none() {
-        return Err(AppError::NotFound(format!("Character {} not found", id)));
-    }
-    Ok(())
+    Store::new(db).delete("character", id).await
 }

@@ -15,6 +15,11 @@ import type {
   CharacterFaction,
   AggregateReview,
   WritingReview,
+  Workflow,
+  WorkflowStep,
+  WorkflowProgress,
+  WorkflowResult,
+  WorkflowStepType,
 } from "./types";
 
 export const projectApi = {
@@ -59,6 +64,7 @@ export const characterApi = {
   create: (
     projectId: string,
     name: string,
+    aliases: unknown[] | null,
     description: string,
     personality: string,
     background: string,
@@ -68,6 +74,7 @@ export const characterApi = {
     invoke<Character>("create_character", {
       projectId,
       name,
+      aliases: aliases ?? [],
       description,
       personality,
       background,
@@ -77,6 +84,7 @@ export const characterApi = {
   update: (
     id: string,
     name: string,
+    aliases: unknown[] | null,
     description: string,
     personality: string,
     background: string,
@@ -86,6 +94,7 @@ export const characterApi = {
     invoke<Character>("update_character", {
       id,
       name,
+      aliases: aliases ?? [],
       description,
       personality,
       background,
@@ -320,4 +329,58 @@ export const reviewApi = {
     }),
   listReviews: (sessionId: string) =>
     invoke<WritingReview[]>("list_writing_reviews", { sessionId }),
+};
+
+export const workflowApi = {
+  list: () => invoke<Workflow[]>("list_workflows"),
+  getSteps: (workflowId: string) =>
+    invoke<WorkflowStep[]>("list_workflow_steps", { workflowId }),
+  get: (id: string) => invoke<Workflow>("get_workflow", { id }),
+  create: (
+    name: string,
+    description: string,
+    steps: Array<{
+      step_type: WorkflowStepType;
+      agent_id: string | null;
+      condition: Record<string, unknown> | null;
+      config: Record<string, unknown>;
+      enabled: boolean;
+    }>,
+  ) => invoke<Workflow>("create_workflow", { name, description, steps }),
+  update: (
+    id: string,
+    name: string,
+    description: string,
+    steps: Array<{
+      step_type: WorkflowStepType;
+      agent_id: string | null;
+      condition: Record<string, unknown> | null;
+      config: Record<string, unknown>;
+      enabled: boolean;
+    }>,
+  ) => invoke<Workflow>("update_workflow", { id, name, description, steps }),
+  delete: (id: string) => invoke<void>("delete_workflow", { id }),
+  setDefault: (id: string) => invoke<void>("set_default_workflow", { id }),
+  run: (
+    workflowId: string,
+    params: {
+      projectId: string;
+      sessionId?: string | null;
+      text?: string | null;
+      instruction?: string | null;
+      characterId?: string | null;
+    },
+    onProgress: (chunk: WorkflowProgress) => void,
+  ): Promise<WorkflowResult> => {
+    const channel = new Channel<WorkflowProgress>(onProgress);
+    return invoke("run_workflow", {
+      workflowId,
+      projectId: params.projectId,
+      sessionId: params.sessionId ?? null,
+      text: params.text ?? null,
+      instruction: params.instruction ?? null,
+      characterId: params.characterId ?? null,
+      onProgress: channel,
+    });
+  },
 };

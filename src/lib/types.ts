@@ -1,5 +1,8 @@
 export type ProjectStatus = "ongoing" | "completed" | "hiatus";
 
+export type NodeType = "volume" | "chapter";
+export type ChapterStatus = "draft" | "in_progress" | "complete" | "revised";
+
 export interface Project {
   id: string;
   title: string;
@@ -12,9 +15,6 @@ export interface Project {
   created_at: string;
   updated_at: string;
 }
-
-export type NodeType = "volume" | "chapter";
-export type ChapterStatus = "draft" | "completed" | "revising";
 
 export interface OutlineNode {
   id: string;
@@ -37,14 +37,14 @@ export interface Character {
   id: string;
   project_id: string;
   name: string;
-  aliases?: string[] | null;
+  aliases: unknown[] | null;
   avatar_url: string | null;
   description: string;
   personality: string;
   background: string;
   race: string;
-  model_id?: string | null;
-  model_name?: string | null;
+  model_id: string | null;
+  model_name: string | null;
   created_at: string;
 }
 
@@ -55,6 +55,12 @@ export interface WorldviewEntry {
   title: string;
   content: string;
   created_at: string;
+  updated_at: string | null;
+}
+
+export interface IpcError {
+  code: string;
+  message: string;
 }
 
 export interface AiConfig {
@@ -74,12 +80,7 @@ export interface AiAgent {
   temperature: number;
   is_default: boolean;
   created_at: string;
-  model_name?: string | null;
-}
-
-export interface AiMessage {
-  role: "user" | "assistant" | "system";
-  content: string;
+  model_name: string | null;
 }
 
 export interface StreamChunk {
@@ -123,7 +124,7 @@ export interface NarrativeBeat {
   strand: "quest" | "fire" | "constellation";
   hook_type?: string | null;
   hook_strength?: string | null;
-  micro_payoffs: unknown[];
+  micro_payoffs: unknown[] | null;
   created_at: string;
 }
 
@@ -210,4 +211,71 @@ export interface AggregateReview {
   }[];
   overall_score: number;
   passed: boolean;
+}
+
+export type WorkflowStepType =
+  | "generate_worldview"
+  | "generate_characters"
+  | "generate_volume_structure"
+  | "generate_chapter_structure"
+  | "expand_chapter_outline"
+  | "narrate"
+  | "character_action"
+  | "polish"
+  | "rewrite"
+  | "continue_writing"
+  | "dialogue"
+  | "review";
+
+export interface WorkflowStep {
+  id: string;
+  workflow_id: string;
+  sort_order: number;
+  step_type: WorkflowStepType;
+  agent_id: string | null;
+  condition: Record<string, unknown> | null;
+  config: Record<string, unknown>;
+  enabled: boolean;
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  description: string;
+  is_preset: boolean;
+  is_default: boolean;
+  step_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowProgress {
+  step_index: number;
+  step_count: number;
+  step_type: string;
+  step_label: string;
+  status: "running" | "completed" | "skipped" | "error" | "done";
+  message: string;
+  text: string;
+  done: boolean;
+}
+
+export interface WorkflowStepResult {
+  step_index: number;
+  type_str: string;
+  label: string;
+  status: "completed" | "skipped" | "error";
+  output_text: string;
+  score: number | null;
+  error: string | null;
+}
+
+export interface WorkflowResult {
+  steps: WorkflowStepResult[];
+  final_text: string;
+}
+
+export interface WorkflowStepTypeOption {
+  value: WorkflowStepType;
+  label: string;
 }

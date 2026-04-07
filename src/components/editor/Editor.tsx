@@ -56,8 +56,9 @@ interface EditorProps {
 
 const statusConfig: Record<ChapterStatus, { label: string; dot: string }> = {
   draft: { label: "草稿", dot: "bg-muted-foreground/50" },
-  completed: { label: "已完成", dot: "bg-green-500" },
-  revising: { label: "修订中", dot: "bg-amber-500" },
+  in_progress: { label: "写作中", dot: "bg-blue-500" },
+  complete: { label: "已完成", dot: "bg-green-500" },
+  revised: { label: "已修订", dot: "bg-amber-500" },
 };
 
 const countWords = (text: string): number => {

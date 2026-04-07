@@ -1,3 +1,4 @@
+use crate::db::Store;
 use crate::db::created_id;
 use crate::db::models::{CharacterFaction, CharacterRelation, Faction};
 use crate::error::{AppError, AppResult};
@@ -134,11 +135,7 @@ pub async fn update_relation(
 }
 
 pub async fn delete_relation(db: &Db, id: &str) -> AppResult<()> {
-    let deleted: Option<Value> = db.delete(("character_relation", id)).await?;
-    if deleted.is_none() {
-        return Err(AppError::NotFound("关系不存在".to_string()));
-    }
-    Ok(())
+    Store::new(db).delete("character_relation", id).await
 }
 
 pub async fn list_factions(db: &Db, project_id: &str) -> AppResult<Vec<CharacterFaction>> {
@@ -257,18 +254,15 @@ pub async fn update_faction(
 }
 
 pub async fn delete_faction(db: &Db, id: &str) -> AppResult<()> {
-    let deleted: Option<Value> = db.delete(("character_faction", id)).await?;
-    if deleted.is_none() {
-        return Err(AppError::NotFound("势力归属不存在".to_string()));
-    }
-    Ok(())
+    Store::new(db).delete("character_faction", id).await
 }
 
 pub async fn list_faction_names(db: &Db, project_id: &str) -> AppResult<Vec<Faction>> {
-    db.query("SELECT id, project, name FROM faction WHERE project = $pid ORDER BY name")
-        .bind(("pid", RecordId::new("project", project_id)))
-        .await?
-        .check()?
-        .take::<Vec<Faction>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find::<Faction>("faction")
+        .project("id, project, name")
+        .filter_ref("project", "project", project_id)
+        .order("name")
+        .all()
+        .await
 }

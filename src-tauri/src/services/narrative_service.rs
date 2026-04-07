@@ -1,3 +1,4 @@
+use crate::db::Store;
 use crate::db::created_id;
 use crate::db::models::{NarrativeBeat, NarrativeSession};
 use crate::error::{AppError, AppResult};
@@ -68,18 +69,16 @@ pub async fn create_session(
 }
 
 pub async fn list_sessions(db: &Db, project_id: &str) -> AppResult<Vec<NarrativeSession>> {
-    db.query("SELECT * FROM narrative_session WHERE project = $pid ORDER BY updated_at DESC")
-        .bind(("pid", RecordId::new("project", project_id)))
-        .await?
-        .check()?
-        .take::<Vec<NarrativeSession>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find("narrative_session")
+        .filter_ref("project", "project", project_id)
+        .order("updated_at DESC")
+        .all()
+        .await
 }
 
 pub async fn get_session(db: &Db, id: &str) -> AppResult<NarrativeSession> {
-    db.select(("narrative_session", id))
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("推演会话 {} 不存在", id)))
+    Store::new(db).get("narrative_session", id).await
 }
 
 pub async fn delete_session(db: &Db, id: &str) -> AppResult<()> {
@@ -106,24 +105,24 @@ pub async fn delete_session(db: &Db, id: &str) -> AppResult<()> {
 }
 
 pub async fn list_beats(db: &Db, session_id: &str) -> AppResult<Vec<NarrativeBeat>> {
-    db.query("SELECT * FROM narrative_beat WHERE session = $sid ORDER BY sort_order ASC")
-        .bind(("sid", RecordId::new("narrative_session", session_id)))
-        .await?
-        .check()?
-        .take::<Vec<NarrativeBeat>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find("narrative_beat")
+        .filter_ref("session", "narrative_session", session_id)
+        .order("sort_order ASC")
+        .all()
+        .await
 }
 
 pub async fn list_events(
     db: &Db,
     session_id: &str,
 ) -> AppResult<Vec<crate::db::models::NarrativeEvent>> {
-    db.query("SELECT * FROM narrative_event WHERE session = $sid ORDER BY created_at ASC")
-        .bind(("sid", RecordId::new("narrative_session", session_id)))
-        .await?
-        .check()?
-        .take::<Vec<crate::db::models::NarrativeEvent>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find("narrative_event")
+        .filter_ref("session", "narrative_session", session_id)
+        .order("created_at ASC")
+        .all()
+        .await
 }
 
 pub async fn delete_beat(db: &Db, id: &str) -> AppResult<()> {
@@ -205,7 +204,7 @@ pub async fn advance_narration(
     let session = get_session(db, session_id).await?;
     let project_id = session.project.key.to_sql();
 
-    let agent_config = resolve_agent(db, agent_id, "叙事者", None).await?;
+    let agent_config = agent_service::resolve_agent(db, agent_id, "叙事者", None).await?;
     let contract = context_service::build_contract(db, &project_id, session_id).await?;
     let strand = pick_next_strand(&contract.strand_context);
 
@@ -260,7 +259,7 @@ pub async fn invoke_character(
         .ok_or_else(|| AppError::NotFound("角色不存在".to_string()))?
         .clone();
 
-    let agent_config = resolve_agent(db, agent_id, "角色扮演", Some(&character.name)).await?;
+    let agent_config = agent_service::resolve_agent(db, agent_id, "角色扮演", Some(&character.name)).await?;
     let contract = context_service::build_contract(db, &project_id, session_id).await?;
     let strand = session.strand.clone();
 
@@ -287,21 +286,6 @@ pub async fn invoke_character(
         on_chunk,
     )
     .await
-}
-
-async fn resolve_agent(
-    db: &Db,
-    agent_id: Option<&str>,
-    fallback_name: &str,
-    character_name: Option<&str>,
-) -> AppResult<AgentConfig> {
-    if let Some(id) = agent_id {
-        return agent_service::get_agent_config(db, id).await;
-    }
-    if let Some(name) = character_name {
-        return agent_service::apply_character_template(db, name).await;
-    }
-    agent_service::get_agent_by_name(db, fallback_name).await
 }
 
 async fn generate_and_save_beat(
@@ -384,7 +368,7 @@ async fn generate_and_save_beat(
     Ok(())
 }
 
-fn pick_next_strand(ctx: &context_service::StrandContext) -> String {
+pub fn pick_next_strand(ctx: &context_service::StrandContext) -> String {
     if ctx.quest_streak >= QUEST_SWITCH_THRESHOLD {
         return "fire".to_string();
     }
@@ -397,7 +381,7 @@ fn pick_next_strand(ctx: &context_service::StrandContext) -> String {
     ctx.current_strand.clone()
 }
 
-fn build_strand_instruction(strand: &str, ctx: &context_service::StrandContext) -> String {
+pub fn build_strand_instruction(strand: &str, ctx: &context_service::StrandContext) -> String {
     let guidance = match strand {
         "quest" => "本段以主线剧情为主，聚焦核心冲突和情节推进。",
         "fire" => "本段以感情线为主，展现角色之间的情感互动和关系变化。",

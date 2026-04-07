@@ -1,7 +1,8 @@
+use crate::db::Store;
 use crate::db::models::Character;
 use crate::error::AppResult;
 use crate::state::Db;
-use surrealdb::types::{RecordId, SurrealValue};
+use surrealdb::types::SurrealValue;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ContextContract {
@@ -69,12 +70,21 @@ pub async fn build_contract(
     project_id: &str,
     session_id: &str,
 ) -> AppResult<ContextContract> {
-    let project_title = get_project_title(db, project_id).await?;
-    let characters = get_project_characters(db, project_id).await?;
-    let worldview = get_worldview_entries(db, project_id).await?;
-    let recent_beats = get_recent_beats(db, session_id).await?;
-    let character_states = get_character_states(db, session_id).await?;
-    let strand_context = get_strand_context(db, session_id).await?;
+    let (project_title, characters, worldview, recent_beats, character_states, strand_context) = tokio::join!(
+        get_project_title(db, project_id),
+        get_project_characters(db, project_id),
+        get_worldview_entries(db, project_id),
+        get_recent_beats(db, session_id),
+        get_character_states(db, session_id),
+        get_strand_context(db, session_id),
+    );
+
+    let project_title = project_title?;
+    let characters = characters?;
+    let worldview = worldview?;
+    let recent_beats = recent_beats?;
+    let character_states = character_states?;
+    let strand_context = strand_context?;
 
     let character_contexts: Vec<CharacterContext> = characters
         .iter()
@@ -268,38 +278,38 @@ pub fn build_editor_context(contract: &ContextContract) -> String {
 }
 
 pub async fn get_project_characters(db: &Db, project_id: &str) -> AppResult<Vec<Character>> {
-    db.query("SELECT * FROM character WHERE project = $pid ORDER BY name")
-        .bind(("pid", RecordId::new("project", project_id)))
-        .await?
-        .check()?
-        .take::<Vec<Character>>(0)
-        .map_err(Into::into)
+    Store::new(db)
+        .find("character")
+        .filter_ref("project", "project", project_id)
+        .order("name")
+        .all()
+        .await
 }
 
 async fn get_project_title(db: &Db, project_id: &str) -> AppResult<String> {
-    let result: Option<String> = db
-        .query("SELECT VALUE title FROM project WHERE id = $pid")
-        .bind(("pid", RecordId::new("project", project_id)))
-        .await?
-        .check()?
-        .take::<Option<String>>(0)?;
-    Ok(result.unwrap_or_default())
+    Store::new(db)
+        .find("project")
+        .project("VALUE title")
+        .filter_ref("id", "project", project_id)
+        .one()
+        .await
 }
 
 async fn get_worldview_entries(db: &Db, project_id: &str) -> AppResult<Vec<WorldviewItem>> {
-    #[derive(Debug, Clone, SurrealValue)]
+    #[derive(Debug, Clone, serde::Deserialize, SurrealValue)]
     struct Row {
         category: String,
         title: String,
         content: String,
     }
 
-    let rows: Vec<Row> = db
-        .query("SELECT category, title, content FROM worldview_entry WHERE project = $pid ORDER BY category, title")
-        .bind(("pid", RecordId::new("project", project_id)))
-        .await?
-        .check()?
-        .take::<Vec<Row>>(0)?;
+    let rows: Vec<Row> = Store::new(db)
+        .find("worldview_entry")
+        .project("category, title, content")
+        .filter_ref("project", "project", project_id)
+        .order("category, title")
+        .all()
+        .await?;
 
     Ok(rows
         .into_iter()
@@ -312,7 +322,7 @@ async fn get_worldview_entries(db: &Db, project_id: &str) -> AppResult<Vec<World
 }
 
 async fn get_recent_beats(db: &Db, session_id: &str) -> AppResult<Vec<BeatSummary>> {
-    #[derive(Debug, Clone, SurrealValue)]
+    #[derive(Debug, Clone, serde::Deserialize, SurrealValue)]
     struct Row {
         beat_type: String,
         character_name: String,
@@ -320,18 +330,14 @@ async fn get_recent_beats(db: &Db, session_id: &str) -> AppResult<Vec<BeatSummar
         strand: String,
     }
 
-    let rows: Vec<Row> = db
-        .query(
-            "SELECT beat_type, character_name, content, strand \
-             FROM narrative_beat \
-             WHERE session = type::record('narrative_session', $sid) \
-             ORDER BY sort_order DESC \
-             LIMIT 20",
-        )
-        .bind(("sid", session_id.to_string()))
-        .await?
-        .check()?
-        .take::<Vec<Row>>(0)?;
+    let rows: Vec<Row> = Store::new(db)
+        .find("narrative_beat")
+        .project("beat_type, character_name, content, strand")
+        .filter_ref("session", "narrative_session", session_id)
+        .order("sort_order DESC")
+        .limit(20)
+        .all()
+        .await?;
 
     let mut beats: Vec<BeatSummary> = rows
         .into_iter()
@@ -347,7 +353,7 @@ async fn get_recent_beats(db: &Db, session_id: &str) -> AppResult<Vec<BeatSummar
 }
 
 async fn get_character_states(db: &Db, session_id: &str) -> AppResult<Vec<CharacterStateView>> {
-    #[derive(Debug, Clone, SurrealValue)]
+    #[derive(Debug, Clone, serde::Deserialize, SurrealValue)]
     struct StateRow {
         character_name: String,
         emotion: String,

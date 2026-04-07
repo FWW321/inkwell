@@ -11,10 +11,13 @@ import {
   Star,
   ArrowLeft,
   Bot,
+  Workflow,
+  Eye,
+  EyeOff,
 } from "lucide-react";
-import { aiApi } from "@/lib/api";
+import { aiApi, workflowApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { AiConfig, AiAgent } from "@/lib/types";
+import type { AiConfig, AiAgent, Workflow as WorkflowType, WorkflowStep, WorkflowStepType, WorkflowStepTypeOption } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +28,8 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useResource } from "@/hooks/useResource";
+import { useDialog } from "@/hooks/useDialog";
 
 const ModelCard = ({
   model,
@@ -435,54 +440,283 @@ const AgentForm = ({
   );
 };
 
-const SettingsPage = () => {
-  const navigate = useNavigate();
-  const [models, setModels] = useState<AiConfig[]>([]);
-  const [agents, setAgents] = useState<AiAgent[]>([]);
-  const [loading, setLoading] = useState(true);
+const STEP_TYPE_OPTIONS: WorkflowStepTypeOption[] = [
+  { value: "generate_worldview", label: "世界观生成" },
+  { value: "generate_characters", label: "角色生成" },
+  { value: "generate_volume_structure", label: "卷结构生成" },
+  { value: "generate_chapter_structure", label: "章节结构生成" },
+  { value: "expand_chapter_outline", label: "章节扩写" },
+  { value: "narrate", label: "推进叙事" },
+  { value: "character_action", label: "角色行动" },
+  { value: "polish", label: "润色" },
+  { value: "rewrite", label: "改写" },
+  { value: "continue_writing", label: "续写" },
+  { value: "dialogue", label: "对话生成" },
+  { value: "review", label: "质量审查" },
+];
 
-  const [showModelForm, setShowModelForm] = useState(false);
-  const [editingModel, setEditingModel] = useState<AiConfig | null>(null);
+const DEFAULT_AGENT: Record<string, string> = {
+  narrate: "叙事者",
+  character_action: "角色扮演",
+  review: "质量审查",
+  polish: "润色助手",
+  rewrite: "改写助手",
+  continue_writing: "续写助手",
+  dialogue: "对话生成",
+  generate_worldview: "大纲生成",
+  generate_characters: "大纲生成",
+  generate_volume_structure: "大纲生成",
+  generate_chapter_structure: "大纲生成",
+  expand_chapter_outline: "大纲生成",
+};
 
-  const [showAgentForm, setShowAgentForm] = useState(false);
-  const [editingAgent, setEditingAgent] = useState<AiAgent | null>(null);
+const WorkflowCard = ({
+  workflow,
+  onEdit,
+  onDelete,
+  onSetDefault,
+}: {
+  workflow: WorkflowType;
+  onEdit: () => void;
+  onDelete: (id: string) => void;
+  onSetDefault: (id: string) => void;
+}) => (
+  <Card className={cn("transition-all duration-150", workflow.is_default && "ring-primary/30 border-primary/20")}>
+    <div className="flex items-center gap-3 px-4 py-3.5">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/12">
+        <Workflow className="size-4 text-violet-500/80" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-card-foreground truncate">{workflow.name}</p>
+          {workflow.is_default && (
+            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-primary/15 text-primary">默认</span>
+          )}
+          {workflow.is_preset && (
+            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">预设</span>
+          )}
+        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground/60 truncate">{workflow.description}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground/40">{workflow.step_count} 个步骤</p>
+      </div>
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon-sm" onClick={onEdit} className="text-muted-foreground/50 hover:text-foreground">
+          <Pencil className="size-3.5" />
+        </Button>
+        {!workflow.is_preset && (
+          <>
+            {!workflow.is_default && (
+              <Button variant="ghost" size="icon-sm" onClick={() => onSetDefault(workflow.id)} className="text-muted-foreground/50 hover:text-amber-500">
+                <Star className="size-3.5" />
+              </Button>
+            )}
+            <Button variant="ghost" size="icon-sm" onClick={() => onDelete(workflow.id)} className="text-muted-foreground/50 hover:text-destructive">
+              <Trash2 className="size-3.5" />
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  </Card>
+);
 
-  const loadAll = async () => {
+interface StepRow {
+  step_type: WorkflowStepType;
+  agent_id: string;
+  condition: string;
+  enabled: boolean;
+}
+
+type WorkflowWithSteps = WorkflowType & { steps?: WorkflowStep[] };
+
+const WorkflowForm = ({
+  initial,
+  agents,
+  onSave,
+  onCancel,
+}: {
+  initial?: WorkflowWithSteps;
+  agents: AiAgent[];
+  onSave: (data: { name: string; description: string; steps: Array<{ step_type: WorkflowStepType; agent_id: string | null; condition: Record<string, unknown> | null; config: Record<string, unknown>; enabled: boolean }> }) => Promise<void>;
+  onCancel: () => void;
+}) => {
+  const isEdit = !!initial;
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState(initial?.name ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [steps, setSteps] = useState<StepRow[]>(
+    initial?.steps?.map((s) => ({
+      step_type: s.step_type as WorkflowStepType,
+      agent_id: s.agent_id ?? "",
+      condition: s.condition ? JSON.stringify(s.condition) : "",
+      enabled: s.enabled,
+    })) ?? [{ step_type: "narrate", agent_id: "", condition: "", enabled: true }],
+  );
+
+  const addStep = () => {
+    setSteps((prev) => [...prev, { step_type: "narrate", agent_id: "", condition: "", enabled: true }]);
+  };
+
+  const removeStep = (idx: number) => {
+    setSteps((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateStep = (idx: number, patch: Partial<StepRow>) => {
+    setSteps((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  };
+
+  const moveStep = (idx: number, dir: -1 | 1) => {
+    const next = idx + dir;
+    if (next < 0 || next >= steps.length) return;
+    setSteps((prev) => {
+      const arr = [...prev];
+      [arr[idx], arr[next]] = [arr[next], arr[idx]];
+      return arr;
+    });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
     try {
-      const [modelData, agentData] = await Promise.all([
-        aiApi.listModels(),
-        aiApi.listAgents(),
-      ]);
-      setModels(modelData);
-      setAgents(agentData);
-    } catch (err) {
-      console.error("Failed to load settings:", err);
+      await onSave({ name, description, steps: steps.map((s) => ({
+        step_type: s.step_type,
+        agent_id: s.agent_id || null,
+        condition: s.condition.trim() ? JSON.parse(s.condition) as Record<string, unknown> : null,
+        config: {} as Record<string, unknown>,
+        enabled: s.enabled,
+      }))});
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  useEffect(() => {
-    loadAll();
-  }, []);
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div>
+        <Label htmlFor="wf-name">名称</Label>
+        <Input id="wf-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="工作流名称" />
+      </div>
+      <div>
+        <Label htmlFor="wf-desc">描述</Label>
+        <Input id="wf-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="简要描述" />
+      </div>
+      <div>
+        <Label>步骤</Label>
+        <div className="flex flex-col gap-2 mt-1">
+          {steps.map((step, idx) => (
+            <div key={idx} className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2">
+              <div className="flex flex-col gap-0.5">
+                <button type="button" className="text-muted-foreground/40 hover:text-foreground disabled:opacity-20" disabled={idx === 0} onClick={() => moveStep(idx, -1)}>
+                  <ChevronDown className="size-3.5 -rotate-90" />
+                </button>
+                <button type="button" className="text-muted-foreground/40 hover:text-foreground disabled:opacity-20" disabled={idx === steps.length - 1} onClick={() => moveStep(idx, 1)}>
+                  <ChevronDown className="size-3.5 rotate-90" />
+                </button>
+              </div>
+              <div className="flex-1 grid grid-cols-[1fr_1fr] gap-2">
+                <Select value={step.step_type} onValueChange={(v) => {
+                  const defAgent = DEFAULT_AGENT[v as string];
+                  updateStep(idx, { step_type: v as WorkflowStepType, agent_id: defAgent ? (agents.find((a) => a.name === defAgent)?.id ?? step.agent_id) : step.agent_id });
+                }}>
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STEP_TYPE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={step.agent_id || ""} onValueChange={(v) => updateStep(idx, { agent_id: v ?? "" })}>
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue placeholder="使用默认 Agent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {agents.filter((a) => a.id != null).map((a) => (
+                      <SelectItem key={a.id} value={a.id!}>{a.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <button type="button" className="text-muted-foreground/50 hover:text-foreground" onClick={() => updateStep(idx, { enabled: !step.enabled })}>
+                {step.enabled ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+              </button>
+              <button type="button" className="text-muted-foreground/50 hover:text-destructive" onClick={() => removeStep(idx)}>
+                <Trash2 className="size-3.5" />
+              </button>
+            </div>
+          ))}
+          <Button type="button" variant="outline" size="sm" className="w-full" onClick={addStep}>
+            <Plus className="size-3.5" />
+            添加步骤
+          </Button>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>取消</Button>
+        <Button type="submit" disabled={saving || !name.trim()}>
+          {saving ? "保存中..." : isEdit ? "更新" : "添加"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+};
+
+const SettingsPage = () => {
+  const navigate = useNavigate();
+  const { items: models, loading: modelsLoading, reload: reloadModels, remove: removeModel, setItems: setModels } = useResource(aiApi.listModels);
+  const { items: agents, loading: agentsLoading, reload: reloadAgents, remove: removeAgent, setItems: setAgents } = useResource(aiApi.listAgents);
+  const { items: workflows, loading: workflowsLoading, reload: reloadWorkflows, remove: removeWorkflow, setItems: setWorkflows } = useResource(workflowApi.list);
+  const loading = modelsLoading || agentsLoading || workflowsLoading;
+
+  const workflowDialog = useDialog<WorkflowWithSteps>();
+
+  const handleEditWorkflow = (wf: WorkflowType) => {
+    workflowApi.getSteps(wf.id).then((steps) => {
+      workflowDialog.show({ ...wf, steps });
+    });
+  };
+
+  const handleDeleteWorkflow = async (id: string) => {
+    await workflowApi.delete(id);
+    removeWorkflow(id);
+  };
+
+  const handleSetDefaultWorkflow = async (id: string) => {
+    await workflowApi.setDefault(id);
+    setWorkflows((prev) => prev.map((w) => ({ ...w, is_default: w.id === id })));
+  };
+
+  const handleSaveWorkflow = async (data: { name: string; description: string; steps: Array<{ step_type: WorkflowStepType; agent_id: string | null; condition: Record<string, unknown> | null; config: Record<string, unknown>; enabled: boolean }> }) => {
+    if (workflowDialog.editing) {
+      await workflowApi.update(workflowDialog.editing.id, data.name, data.description, data.steps);
+    } else {
+      await workflowApi.create(data.name, data.description, data.steps);
+    }
+    await reloadWorkflows();
+    workflowDialog.close();
+  };
+
+  const modelDialog = useDialog<AiConfig>();
+  const agentDialog = useDialog<AiAgent>();
 
   const handleCreateModel = async (data: { name: string; apiKey: string; model: string; baseUrl: string }) => {
     await aiApi.createModel(data.name, data.apiKey, data.model, data.baseUrl);
-    await loadAll();
-    setShowModelForm(false);
+    await reloadModels();
+    modelDialog.close();
   };
 
   const handleUpdateModel = async (data: { name: string; apiKey: string; model: string; baseUrl: string }) => {
-    if (!editingModel) return;
-    await aiApi.updateModel(editingModel.id, data.name, data.apiKey, data.model, data.baseUrl);
-    await loadAll();
-    setEditingModel(null);
-    setShowModelForm(false);
+    if (!modelDialog.editing) return;
+    await aiApi.updateModel(modelDialog.editing.id, data.name, data.apiKey, data.model, data.baseUrl);
+    await reloadModels();
+    modelDialog.close();
   };
 
   const handleDeleteModel = async (id: string) => {
     await aiApi.deleteModel(id);
-    setModels((prev) => prev.filter((m) => m.id !== id));
+    removeModel(id);
   };
 
   const handleSetDefaultModel = async (id: string) => {
@@ -492,21 +726,20 @@ const SettingsPage = () => {
 
   const handleCreateAgent = async (data: { name: string; modelId: string | null; systemPrompt: string; temperature?: number }) => {
     await aiApi.createAgent(data.name, data.modelId, data.systemPrompt, data.temperature);
-    await loadAll();
-    setShowAgentForm(false);
+    await reloadAgents();
+    agentDialog.close();
   };
 
   const handleUpdateAgent = async (data: { name: string; modelId: string | null; systemPrompt: string; temperature?: number }) => {
-    if (!editingAgent) return;
-    await aiApi.updateAgent(editingAgent.id, data.name, data.modelId, data.systemPrompt, data.temperature);
-    await loadAll();
-    setEditingAgent(null);
-    setShowAgentForm(false);
+    if (!agentDialog.editing) return;
+    await aiApi.updateAgent(agentDialog.editing.id, data.name, data.modelId, data.systemPrompt, data.temperature);
+    await reloadAgents();
+    agentDialog.close();
   };
 
   const handleDeleteAgent = async (id: string) => {
     await aiApi.deleteAgent(id);
-    setAgents((prev) => prev.filter((a) => a.id !== id));
+    removeAgent(id);
   };
 
   const handleSetDefaultAgent = async (id: string) => {
@@ -529,6 +762,7 @@ const SettingsPage = () => {
             <TabsList>
               <TabsTrigger value="models">模型</TabsTrigger>
               <TabsTrigger value="agents">助手</TabsTrigger>
+              <TabsTrigger value="workflows">工作流</TabsTrigger>
             </TabsList>
 
             <TabsContent value="models">
@@ -544,7 +778,7 @@ const SettingsPage = () => {
                         <CardDescription>管理 API 连接和模型</CardDescription>
                       </div>
                     </div>
-                    <Button onClick={() => { setEditingModel(null); setShowModelForm(true); }} data-icon="inline-start">
+                    <Button onClick={() => modelDialog.show()} data-icon="inline-start">
                       <Plus />
                       添加模型
                     </Button>
@@ -559,7 +793,7 @@ const SettingsPage = () => {
                     <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground/60">
                       <Cpu className="size-8 text-muted-foreground/30" />
                       <p className="text-sm">还没有配置模型</p>
-                      <Button variant="outline" size="sm" onClick={() => { setEditingModel(null); setShowModelForm(true); }} data-icon="inline-start">
+                      <Button variant="outline" size="sm" onClick={() => modelDialog.show()} data-icon="inline-start">
                         <Plus />
                         添加模型
                       </Button>
@@ -570,7 +804,7 @@ const SettingsPage = () => {
                         <ModelCard
                           key={m.id}
                           model={m}
-                          onEdit={(model) => { setEditingModel(model); setShowModelForm(true); }}
+                          onEdit={(model) => modelDialog.show(model)}
                           onDelete={handleDeleteModel}
                           onSetDefault={handleSetDefaultModel}
                         />
@@ -594,7 +828,7 @@ const SettingsPage = () => {
                         <CardDescription>配置不同角色的 AI 助手</CardDescription>
                       </div>
                     </div>
-                    <Button onClick={() => { setEditingAgent(null); setShowAgentForm(true); }} data-icon="inline-start">
+                    <Button onClick={() => agentDialog.show()} data-icon="inline-start">
                       <Plus />
                       添加助手
                     </Button>
@@ -609,7 +843,7 @@ const SettingsPage = () => {
                     <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground/60">
                       <Bot className="size-8 text-muted-foreground/30" />
                       <p className="text-sm">还没有配置助手</p>
-                      <Button variant="outline" size="sm" onClick={() => { setEditingAgent(null); setShowAgentForm(true); }} data-icon="inline-start">
+                      <Button variant="outline" size="sm" onClick={() => agentDialog.show()} data-icon="inline-start">
                         <Plus />
                         添加助手
                       </Button>
@@ -620,9 +854,50 @@ const SettingsPage = () => {
                         <AgentCard
                           key={a.id}
                           agent={a}
-                          onEdit={(agent) => { setEditingAgent(agent); setShowAgentForm(true); }}
+                          onEdit={(agent) => agentDialog.show(agent)}
                           onDelete={handleDeleteAgent}
                           onSetDefault={handleSetDefaultAgent}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="workflows">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>工作流</CardTitle>
+                      <CardDescription>配置 AI 工作流管线，定义步骤顺序和条件</CardDescription>
+                    </div>
+                    <Button onClick={() => workflowDialog.show()} data-icon="inline-start">
+                      <Plus />
+                      添加工作流
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {loading ? (
+                    <div className="flex h-20 items-center justify-center">
+                      <Spinner className="size-5 text-primary" />
+                    </div>
+                  ) : workflows.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground/60">
+                      <Workflow className="size-8 text-muted-foreground/30" />
+                      <p className="text-sm">还没有配置工作流</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {workflows.map((wf) => (
+                        <WorkflowCard
+                          key={wf.id}
+                          workflow={wf}
+                          onEdit={() => handleEditWorkflow(wf)}
+                          onDelete={() => handleDeleteWorkflow(wf.id)}
+                          onSetDefault={() => handleSetDefaultWorkflow(wf.id)}
                         />
                       ))}
                     </div>
@@ -634,33 +909,49 @@ const SettingsPage = () => {
         </div>
       </div>
 
-      <Dialog open={showModelForm} onOpenChange={(isOpen) => { if (!isOpen) { setShowModelForm(false); setEditingModel(null); } }}>
+      <Dialog open={modelDialog.open} onOpenChange={modelDialog.onOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingModel ? "编辑模型" : "添加模型"}</DialogTitle>
-            <DialogDescription>{editingModel ? "修改 AI 模型配置" : "添加一个新的 AI 模型配置"}</DialogDescription>
+            <DialogTitle>{modelDialog.isEditing ? "编辑模型" : "添加模型"}</DialogTitle>
+            <DialogDescription>{modelDialog.isEditing ? "修改 AI 模型配置" : "添加一个新的 AI 模型配置"}</DialogDescription>
           </DialogHeader>
           <ModelForm
-            key={editingModel?.id ?? "new"}
-            initial={editingModel}
-            onSave={editingModel ? handleUpdateModel : handleCreateModel}
-            onCancel={() => { setShowModelForm(false); setEditingModel(null); }}
+            key={modelDialog.editing?.id ?? "new"}
+            initial={modelDialog.editing}
+            onSave={modelDialog.isEditing ? handleUpdateModel : handleCreateModel}
+            onCancel={modelDialog.close}
           />
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showAgentForm} onOpenChange={(isOpen) => { if (!isOpen) { setShowAgentForm(false); setEditingAgent(null); } }}>
+      <Dialog open={agentDialog.open} onOpenChange={agentDialog.onOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingAgent ? "编辑助手" : "添加助手"}</DialogTitle>
-            <DialogDescription>{editingAgent ? "修改 AI 助手配置" : "添加一个新的 AI 助手"}</DialogDescription>
+            <DialogTitle>{agentDialog.isEditing ? "编辑助手" : "添加助手"}</DialogTitle>
+            <DialogDescription>{agentDialog.isEditing ? "修改 AI 助手配置" : "添加一个新的 AI 助手"}</DialogDescription>
           </DialogHeader>
           <AgentForm
-            key={editingAgent?.id ?? "new"}
-            initial={editingAgent}
+            key={agentDialog.editing?.id ?? "new"}
+            initial={agentDialog.editing}
             models={models}
-            onSave={editingAgent ? handleUpdateAgent : handleCreateAgent}
-            onCancel={() => { setShowAgentForm(false); setEditingAgent(null); }}
+            onSave={agentDialog.isEditing ? handleUpdateAgent : handleCreateAgent}
+            onCancel={agentDialog.close}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={workflowDialog.open} onOpenChange={workflowDialog.onOpenChange}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{workflowDialog.isEditing ? "编辑工作流" : "添加工作流"}</DialogTitle>
+            <DialogDescription>{workflowDialog.isEditing ? "修改工作流步骤和配置" : "创建一个新的 AI 工作流"}</DialogDescription>
+          </DialogHeader>
+          <WorkflowForm
+            key={workflowDialog.editing?.id ?? "new"}
+            initial={workflowDialog.editing ?? undefined}
+            agents={agents}
+            onSave={handleSaveWorkflow}
+            onCancel={workflowDialog.close}
           />
         </DialogContent>
       </Dialog>

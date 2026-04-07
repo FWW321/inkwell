@@ -16,6 +16,7 @@ import {
 import { narrativeApi, characterApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { springs } from "@/lib/motion";
+import { useStreamingSession } from "@/hooks/useStreamingSession";
 import type { NarrativeSession, NarrativeBeat, Character, NarrativeStreamChunk } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,12 +97,10 @@ const NarrativePanel = () => {
   const [authorInput, setAuthorInput] = useState("");
   const [selectedCharId, setSelectedCharId] = useState("");
 
-  const [isAdvancing, setIsAdvancing] = useState(false);
-  const [isInvoking, setIsInvoking] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
+  const advance = useStreamingSession();
+  const invoke = useStreamingSession();
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const streamTextRef = useRef("");
 
   const loadSessions = async () => {
     if (!editorState.projectId) return;
@@ -152,7 +151,7 @@ const NarrativePanel = () => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [beats, streamingText]);
+  }, [beats, advance.streamingText, invoke.streamingText]);
 
   const handleCreateSession = async () => {
     if (!editorState.projectId || !newScene.trim()) return;
@@ -202,21 +201,18 @@ const NarrativePanel = () => {
   };
 
   const handleAdvance = async (instruction?: string) => {
-    if (!activeSession || isAdvancing) return;
-    setIsAdvancing(true);
-    streamTextRef.current = "";
+    if (!activeSession || advance.isStreaming) return;
+    advance.start();
 
     try {
       await narrativeApi.advanceNarration(
         activeSession.id,
         (chunk: NarrativeStreamChunk) => {
           if (chunk.text) {
-            streamTextRef.current += chunk.text;
-            setStreamingText(streamTextRef.current);
+            advance.appendText(chunk.text);
           }
           if (chunk.done) {
-            setIsAdvancing(false);
-            setStreamingText("");
+            advance.finish();
             loadBeats(activeSession.id);
           }
         },
@@ -224,15 +220,13 @@ const NarrativePanel = () => {
       );
     } catch (err) {
       console.error("Failed to advance:", err);
-      setIsAdvancing(false);
-      setStreamingText("");
+      advance.fail("");
     }
   };
 
   const handleInvokeCharacter = async () => {
-    if (!activeSession || !selectedCharId || isInvoking) return;
-    setIsInvoking(true);
-    streamTextRef.current = "";
+    if (!activeSession || !selectedCharId || invoke.isStreaming) return;
+    invoke.start();
 
     try {
       await narrativeApi.invokeCharacter(
@@ -240,12 +234,10 @@ const NarrativePanel = () => {
         selectedCharId,
         (chunk: NarrativeStreamChunk) => {
           if (chunk.text) {
-            streamTextRef.current += chunk.text;
-            setStreamingText(streamTextRef.current);
+            invoke.appendText(chunk.text);
           }
           if (chunk.done) {
-            setIsInvoking(false);
-            setStreamingText("");
+            invoke.finish();
             loadBeats(activeSession.id);
           }
         },
@@ -253,8 +245,7 @@ const NarrativePanel = () => {
       );
     } catch (err) {
       console.error("Failed to invoke character:", err);
-      setIsInvoking(false);
-      setStreamingText("");
+      invoke.fail("");
     }
   };
 
@@ -276,6 +267,15 @@ const NarrativePanel = () => {
       replaceSelection(fullText);
     }
   };
+
+  const isStreaming = advance.isStreaming || invoke.isStreaming;
+  const streamingText = advance.streamingText || invoke.streamingText;
+  const activeStream = advance.isStreaming ? advance : invoke.isStreaming ? invoke : null;
+  const streamLabel = advance.isStreaming
+    ? "叙事者"
+    : invoke.isStreaming
+      ? (characters.find((c) => c.id === selectedCharId)?.name || "")
+      : "";
 
   if (!activeSession) {
     return (
@@ -394,10 +394,10 @@ const NarrativePanel = () => {
         <span className="flex-1 text-xs font-medium text-foreground truncate">
           {activeSession.title}
         </span>
-        {(isAdvancing || isInvoking) && (
+        {isStreaming && (
           <span className="flex items-center gap-1.5 text-[11px] text-primary/60">
             <Spinner className="size-2.5" />
-            {isAdvancing ? "叙事中" : "角色响应中"}
+            {advance.isStreaming ? "叙事中" : "角色响应中"}
           </span>
         )}
       </div>
@@ -409,7 +409,7 @@ const NarrativePanel = () => {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            {beats.length === 0 && !isAdvancing && (
+            {beats.length === 0 && !isStreaming && (
               <p className="text-xs text-muted-foreground/60 text-center py-8">
                 点击「叙事推进」开始剧情
               </p>
@@ -421,34 +421,34 @@ const NarrativePanel = () => {
                 onDelete={() => handleDeleteBeat(beat.id)}
               />
             ))}
-            {(isAdvancing || isInvoking) && streamingText && (
+            {activeStream && streamingText && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.15 }}
                 className={cn(
                   "rounded-xl px-3.5 py-2.5 text-sm leading-relaxed",
-                  isAdvancing ? "bg-muted/50 text-foreground" : "bg-muted/50 text-foreground mr-4",
+                  advance.isStreaming ? "bg-muted/50 text-foreground" : "bg-muted/50 text-foreground mr-4",
                 )}
               >
                 <div className="mb-1 flex items-center gap-1.5">
-                  {isAdvancing ? (
+                  {advance.isStreaming ? (
                     <BookOpen className="size-3 text-muted-foreground/50" />
                   ) : (
                     <UserRound className="size-3 text-muted-foreground/50" />
                   )}
                   <span className="text-[11px] font-medium text-muted-foreground/70">
-                    {isAdvancing ? "叙事者" : characters.find((c) => c.id === selectedCharId)?.name || ""}
+                    {streamLabel}
                   </span>
                 </div>
                 {streamingText}
                 <span className="inline-block size-1.5 ml-0.5 rounded-full bg-primary/50 animate-pulse" />
               </motion.div>
             )}
-            {(isAdvancing || isInvoking) && !streamingText && (
+            {isStreaming && !streamingText && (
               <div className="flex items-center gap-2 rounded-xl bg-muted/50 px-3.5 py-2.5 text-sm text-muted-foreground">
                 <Spinner className="size-3 text-primary/50" />
-                {isAdvancing ? "叙事者思考中..." : "角色思考中..."}
+                {advance.isStreaming ? "叙事者思考中..." : "角色思考中..."}
               </div>
             )}
           </div>
@@ -472,12 +472,12 @@ const NarrativePanel = () => {
         <div className="flex gap-1.5">
           <Button
             onClick={() => handleAdvance()}
-            disabled={isAdvancing || isInvoking}
+            disabled={isStreaming}
             size="sm"
             className="flex-1"
             data-icon="inline-start"
           >
-            {isAdvancing ? (
+            {advance.isStreaming ? (
               <><Square className="size-3" />停止</>
             ) : (
               <><Play className="size-3" />叙事推进</>
@@ -501,7 +501,7 @@ const NarrativePanel = () => {
             </select>
             <Button
               onClick={handleInvokeCharacter}
-              disabled={isAdvancing || isInvoking || !selectedCharId}
+              disabled={isStreaming || !selectedCharId}
               size="sm"
               className="flex-1"
               data-icon="inline-start"
@@ -522,7 +522,7 @@ const NarrativePanel = () => {
             }
           }}
           placeholder="输入作者指令（回车发送）..."
-          disabled={isAdvancing || isInvoking}
+          disabled={isStreaming}
         />
       </div>
     </div>

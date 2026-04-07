@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { Plus, BookOpen, Trash2, MoreHorizontal, Feather, Settings } from "lucide-react";
 import { projectApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { languages } from "@/lib/constants";
 import type { Project, ProjectStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,19 +16,8 @@ import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyCont
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { springs } from "@/lib/motion";
-
-const languages = [
-  { value: "zh", label: "中文" },
-  { value: "zh-TW", label: "繁體中文" },
-  { value: "en", label: "English" },
-  { value: "ja", label: "日本語" },
-  { value: "ko", label: "한국어" },
-  { value: "fr", label: "Français" },
-  { value: "de", label: "Deutsch" },
-  { value: "es", label: "Español" },
-  { value: "pt", label: "Português" },
-  { value: "ru", label: "Русский" },
-] as const;
+import { useResource } from "@/hooks/useResource";
+import { useDialog } from "@/hooks/useDialog";
 
 const CreateProjectDialog = ({
   open,
@@ -287,35 +277,20 @@ const ProjectCard = ({
 
 const ProjectsPage = () => {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadProjects = async () => {
-      try {
-        const data = await projectApi.list();
-        setProjects(data);
-      } catch (err) {
-        console.error("Failed to load projects:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadProjects();
-  }, []);
+  const { items: projects, loading, prepend, remove } = useResource(projectApi.list);
+  const dialog = useDialog();
 
   const handleDelete = async (id: string) => {
     try {
       await projectApi.delete(id);
-      setProjects((prev) => prev.filter((p) => p.id !== id));
+      remove(id);
     } catch (err) {
       console.error("Failed to delete project:", err);
     }
   };
 
   const handleCreated = (project: Project) => {
-    setProjects((prev) => [project, ...prev]);
+    prepend(project);
   };
 
   return (
@@ -336,7 +311,7 @@ const ProjectsPage = () => {
           >
             <Settings />
           </Button>
-          <Button onClick={() => setShowCreate(true)}>
+          <Button onClick={() => dialog.show()}>
             <Plus data-icon="inline-start" />
             新建项目
           </Button>
@@ -360,7 +335,7 @@ const ProjectsPage = () => {
               <EmptyDescription>创建你的第一个小说项目</EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
-              <Button onClick={() => setShowCreate(true)}>
+              <Button onClick={() => dialog.show()}>
                 <Plus data-icon="inline-start" />
                 新建项目
               </Button>
@@ -379,8 +354,8 @@ const ProjectsPage = () => {
         )}
       </div>
       <CreateProjectDialog
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
+        open={dialog.open}
+        onClose={dialog.close}
         onCreated={handleCreated}
       />
     </div>

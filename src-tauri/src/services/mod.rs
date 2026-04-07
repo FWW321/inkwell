@@ -9,3 +9,4 @@ pub mod project_service;
 pub mod relation_service;
 pub mod review_service;
 pub mod worldview_service;
+pub mod workflow_service;

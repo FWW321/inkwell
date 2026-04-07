@@ -1,6 +1,8 @@
 pub mod models;
+pub mod store;
 
 pub use models::*;
+pub use store::Store;
 
 use crate::error::{AppError, AppResult};
 use surrealdb::types::{RecordIdKey, ToSql, Value};
